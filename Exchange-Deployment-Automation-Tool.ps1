@@ -675,15 +675,67 @@ function Install-PrerequisiteSoftware {
 #region ============================ EXCHANGE-FUNKTIONEN ============================
 function Import-ExchangeManagementShell {
     try {
-        if (Get-Command Get-MailboxDatabase -ErrorAction SilentlyContinue) { return $true }
-        if (Test-Path $Global:RemoteExchangeScript) {
-            . $Global:RemoteExchangeScript
-            Connect-ExchangeServer -auto -ClientApplication:ManagementShell
-            Write-Log "Exchange Shell loaded" -Level SUCCESS
+        # Bereits geladen?
+        if (Get-Command Get-MailboxDatabase -ErrorAction SilentlyContinue) {
             return $true
         }
+
+        # Methode 1: RemoteExchange.ps1 (Standard)
+        if (Test-Path $Global:RemoteExchangeScript) {
+            Write-Log "Loading via RemoteExchange.ps1..." -Level INFO
+            try {
+                . $Global:RemoteExchangeScript
+                Connect-ExchangeServer -auto -ClientApplication:ManagementShell -ErrorAction Stop
+                if (Get-Command Get-MailboxDatabase -ErrorAction SilentlyContinue) {
+                    Write-Log "Exchange Shell loaded (RemoteExchange.ps1)" -Level SUCCESS
+                    return $true
+                }
+            } catch {
+                Write-Log ("RemoteExchange.ps1 failed: " + $_) -Level WARNING
+            }
+        }
+
+        # Methode 2: SnapIn (klassisch)
+        try {
+            Write-Log "Loading via PSSnapin..." -Level INFO
+            $snap = Get-PSSnapin -Registered -Name "Microsoft.Exchange.Management.PowerShell.E2010" -ErrorAction SilentlyContinue
+            if (-not $snap) {
+                $snap = Get-PSSnapin -Registered -Name "Microsoft.Exchange.Management.PowerShell.SnapIn" -ErrorAction SilentlyContinue
+            }
+            if ($snap) {
+                Add-PSSnapin -Name $snap.Name -ErrorAction Stop
+                if (Get-Command Get-MailboxDatabase -ErrorAction SilentlyContinue) {
+                    Write-Log "Exchange Shell loaded (PSSnapin)" -Level SUCCESS
+                    return $true
+                }
+            }
+        } catch {
+            Write-Log ("PSSnapin failed: " + $_) -Level WARNING
+        }
+
+        # Methode 3: Modul (Exchange SE)
+        try {
+            Write-Log "Loading via Module..." -Level INFO
+            $exchModule = Get-Module -ListAvailable -Name "Microsoft.Exchange.Management.PowerShell*" -ErrorAction SilentlyContinue
+            if ($exchModule) {
+                Import-Module ($exchModule | Select-Object -First 1).Name -ErrorAction Stop
+                if (Get-Command Get-MailboxDatabase -ErrorAction SilentlyContinue) {
+                    Write-Log "Exchange Shell loaded (Module)" -Level SUCCESS
+                    return $true
+                }
+            }
+        } catch {
+            Write-Log ("Module load failed: " + $_) -Level WARNING
+        }
+
+        Write-Log "Exchange Management Shell could not be loaded" -Level ERROR
+        Write-Log "Make sure Exchange is fully installed and a reboot has occurred." -Level WARNING
         return $false
-    } catch { Write-Log ("Error: " + $_) -Level ERROR; return $false }
+    }
+    catch {
+        Write-Log ("Import error: " + $_) -Level ERROR
+        return $false
+    }
 }
 
 function Test-ExchangePrerequisites {
@@ -914,12 +966,74 @@ function Install-AntiSpamAgents {
     param([string]$InstallPath = $Global:DefaultInstallPath)
     try {
         $script = Join-Path $InstallPath "Scripts\Install-AntiSpamAgents.ps1"
-        if (-not (Test-Path $script)) { Write-Log "AntiSpam script missing" -Level ERROR; return $false }
-        & $script
-        Restart-Service -Name MSExchangeTransport -Force
-        Write-Log "AntiSpam agents installed" -Level SUCCESS
+        if (-not (Test-Path $script)) {
+            Write-Log ("AntiSpam script not found: " + $script) -Level ERROR
+            Write-Log "Make sure Exchange is fully installed first!" -Level WARNING
+            return $false
+        }
+
+        # WICHTIG: Exchange Management Shell MUSS geladen sein,
+        # da das Script intern Get-TransportService etc. verwendet
+        Write-Log "Loading Exchange Management Shell..." -Level INFO
+        if (-not (Import-ExchangeManagementShell)) {
+            Write-Log "Exchange Management Shell could not be loaded - is Exchange installed?" -Level ERROR
+            return $false
+        }
+
+        # Sicherheitspruefung: Get-TransportService verfuegbar?
+        if (-not (Get-Command Get-TransportService -ErrorAction SilentlyContinue)) {
+            Write-Log "Get-TransportService not available - Exchange Shell not properly loaded" -Level ERROR
+            return $false
+        }
+
+        # Server-Name ermitteln
+        $serverName = $env:COMPUTERNAME
+        Write-Log ("Installing AntiSpam agents on server: " + $serverName) -Level INFO
+
+        # AntiSpam-Script ausfuehren
+        try {
+            & $script
+            Write-Log "AntiSpam-Script executed" -Level SUCCESS
+        } catch {
+            Write-Log ("Script execution error: " + $_) -Level WARNING
+        }
+
+        # MSExchangeTransport neustarten - nur wenn Service existiert
+        $transportSvc = Get-Service -Name "MSExchangeTransport" -ErrorAction SilentlyContinue
+        if ($transportSvc) {
+            Write-Log "Restarting MSExchangeTransport service..." -Level INFO
+            try {
+                Restart-Service -Name MSExchangeTransport -Force -ErrorAction Stop
+                Write-Log "MSExchangeTransport restarted" -Level SUCCESS
+            } catch {
+                Write-Log ("Service restart warning: " + $_) -Level WARNING
+            }
+        } else {
+            Write-Log "MSExchangeTransport service not found - manual restart required" -Level WARNING
+        }
+
+        # Verifikation: Welche AntiSpam-Agenten sind aktiv?
+        try {
+            Start-Sleep -Seconds 3
+            $agents = Get-TransportAgent -ErrorAction SilentlyContinue
+            if ($agents) {
+                Write-Log "Configured Transport Agents:" -Level INFO
+                foreach ($a in $agents) {
+                    $statusTxt = if ($a.Enabled) { "ENABLED" } else { "disabled" }
+                    Write-Log ("  - " + $a.Identity + " : " + $statusTxt) -Level INFO
+                }
+            }
+        } catch {
+            Write-Log ("Agent verification skipped: " + $_) -Level INFO
+        }
+
+        Write-Log "AntiSpam agents installation complete" -Level SUCCESS
         return $true
-    } catch { Write-Log ("Error: " + $_) -Level ERROR; return $false }
+    }
+    catch {
+        Write-Log ("Error: " + $_) -Level ERROR
+        return $false
+    }
 }
 
 function Set-AntiSpamConfiguration {
@@ -2048,9 +2162,96 @@ $TabRun.Controls.Add($BtnClearLog)
 # === Open Setup-Log ===
 $BtnOpenSetupLog = New-Button (Get-T "Run_OpenLog") 530 470 220 32 $Global:ColorAccent
 $BtnOpenSetupLog.Add_Click({
-    if (Test-Path $Global:ExchangeSetupLog) { Start-Process notepad.exe $Global:ExchangeSetupLog }
-    else { [System.Windows.Forms.MessageBox]::Show("ExchangeSetup.log not yet created.",(Get-T "Info"),'OK','Information') }
+    try {
+        # 1. Mögliche Log-Pfade ermitteln (SystemDrive variabel!)
+        $sysDrive = $env:SystemDrive
+        $candidatePaths = @(
+            "$sysDrive\ExchangeSetupLogs\ExchangeSetup.log",
+            "C:\ExchangeSetupLogs\ExchangeSetup.log",
+            "D:\ExchangeSetupLogs\ExchangeSetup.log",
+            "E:\ExchangeSetupLogs\ExchangeSetup.log"
+        )
+
+        $logFile  = $null
+        $logDir   = $null
+
+        # 2. Existierendes Setup-Log finden
+        foreach ($p in $candidatePaths) {
+            if (Test-Path $p -ErrorAction SilentlyContinue) {
+                $logFile = $p
+                $logDir  = Split-Path $p -Parent
+                Write-Log ("Setup-Log gefunden: " + $p) -Level INFO
+                break
+            }
+        }
+
+        # 3. Wenn Log gefunden -> direkt oeffnen
+        if ($logFile) {
+            try {
+                Start-Process notepad.exe -ArgumentList "`"$logFile`""
+                Write-Log "ExchangeSetup.log geoeffnet" -Level SUCCESS
+            } catch {
+                Write-Log ("Notepad konnte nicht starten: " + $_) -Level ERROR
+                Start-Process explorer.exe -ArgumentList ("/select,`"$logFile`"")
+            }
+            return
+        }
+
+        # 4. Log nicht gefunden - Verzeichnis suchen
+        $foundDir = $null
+        foreach ($p in $candidatePaths) {
+            $dir = Split-Path $p -Parent
+            if (Test-Path $dir -ErrorAction SilentlyContinue) {
+                $foundDir = $dir
+                break
+            }
+        }
+
+        if ($foundDir) {
+            # Verzeichnis existiert aber kein Setup-Log
+            $allLogs = Get-ChildItem -Path $foundDir -Filter "*.log" -ErrorAction SilentlyContinue |
+                       Sort-Object LastWriteTime -Descending
+            if ($allLogs -and $allLogs.Count -gt 0) {
+                # Andere Logs vorhanden - User waehlen lassen
+                $msg = "ExchangeSetup.log nicht gefunden, aber andere Logs:`r`n`r`n"
+                $i = 1
+                foreach ($l in $allLogs | Select-Object -First 10) {
+                    $msg += "  $i. $($l.Name)  ($([math]::Round($l.Length/1KB,1)) KB, $($l.LastWriteTime))`r`n"
+                    $i++
+                }
+                $msg += "`r`nMoechten Sie den Ordner oeffnen?"
+                $r = [System.Windows.Forms.MessageBox]::Show($msg, (Get-T "Info"), 'YesNo', 'Information')
+                if ($r -eq "Yes") {
+                    Start-Process explorer.exe $foundDir
+                    Write-Log ("Setup-Log-Ordner geoeffnet: " + $foundDir) -Level INFO
+                }
+            } else {
+                # Ordner leer
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Setup-Log-Ordner ist leer:`r`n$foundDir`r`n`r`nSetup wurde wahrscheinlich noch nicht gestartet.",
+                    (Get-T "Info"), 'OK', 'Information')
+            }
+            return
+        }
+
+        # 5. Komplett nichts gefunden
+        $msg = "Kein ExchangeSetup-Log gefunden!`r`n`r`n"
+        $msg += "Geprueft wurden:`r`n"
+        foreach ($p in $candidatePaths) { $msg += "  - $p`r`n" }
+        $msg += "`r`nMoegliche Ursachen:`r`n"
+        $msg += "  - Setup wurde noch nie gestartet`r`n"
+        $msg += "  - Voraussetzungen-Pruefung schlug VOR dem Setup-Aufruf fehl`r`n"
+        $msg += "  - Anderer SystemDrive (aktuell: $sysDrive)"
+
+        [System.Windows.Forms.MessageBox]::Show($msg, (Get-T "Warning"), 'OK', 'Warning')
+        Write-Log "Kein Setup-Log gefunden" -Level WARNING
+    }
+    catch {
+        Write-Log ("Fehler beim Oeffnen des Setup-Logs: " + $_) -Level ERROR
+        [System.Windows.Forms.MessageBox]::Show(("Fehler: " + $_), (Get-T "Error"), 'OK', 'Error')
+    }
 })
+
 $TabRun.Controls.Add($BtnOpenSetupLog)
 
 # === START ALL ===
