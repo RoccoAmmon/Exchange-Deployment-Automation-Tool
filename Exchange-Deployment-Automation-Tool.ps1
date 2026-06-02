@@ -2126,49 +2126,145 @@ $BtnCreateDAGNow.Add_Click({
                 return
             }
 
-            # === Witness-Verzeichnis vorab anlegen ===
-            Write-Log "Erstelle Witness-Verzeichnis auf DC..." -Level INFO
-            try {
-                Invoke-Command -ComputerName $witnessSrv -ScriptBlock {
-                    param($dir)
-                    if (-not (Test-Path $dir)) {
-                        New-Item -Path $dir -ItemType Directory -Force | Out-Null
-                    }
-                } -ArgumentList $witnessDir -ErrorAction Stop
-                Write-Log ("Verzeichnis erstellt: " + $witnessDir) -Level SUCCESS
-            } catch {
-                Write-Log ("Verzeichnis-Erstellung: " + $_.Exception.Message) -Level WARNING
-                Write-Log "Versuche UNC-Fallback..." -Level INFO
-                try {
-                    $uncPath = $witnessDir -replace '^([A-Z]):',('\\' + $witnessSrv + '\$1$')
-                    if (-not (Test-Path $uncPath)) {
-                        New-Item -Path $uncPath -ItemType Directory -Force | Out-Null
-                        Write-Log ("UNC-Erstellung erfolgreich: " + $uncPath) -Level SUCCESS
-                    }
-                } catch {
-                    Write-Log "Bitte Witness-Verzeichnis manuell erstellen!" -Level WARNING
-                }
-            }
-        }
+                    # === Witness-Verzeichnis vorab anlegen (mit Verifikation!) ===
+        Write-Log "==============================================" -Level INFO
+        Write-Log " Witness-Verzeichnis auf DC erstellen" -Level INFO
+        Write-Log "==============================================" -Level INFO
+        Write-Log ("Ziel: " + $witnessSrv + " - " + $witnessDir) -Level INFO
 
-        # === Witness-Verzeichnis vorab anlegen ===
-        Write-Log "Pre-creating witness directory on $witnessSrv..." -Level INFO
+        $dirCreated = $false
+        $uncPath = $witnessDir -replace '^([A-Z]):',('\\' + $witnessSrv + '\$1$')
+
+        # === METHODE 1: UNC-Pfad direkt (braucht nur SMB, kein WinRM) ===
+        Write-Log "Methode 1: Direkter UNC-Zugriff (admin share)..." -Level INFO
+        Write-Log ("  UNC-Pfad: " + $uncPath) -Level INFO
         try {
-            $remoteDir = $witnessDir -replace '^([A-Z]):','\\' + $witnessSrv + '\$1$'
-            if (-not (Test-Path $remoteDir -ErrorAction SilentlyContinue)) {
-                Invoke-Command -ComputerName $witnessSrv -ScriptBlock {
-                    param($dir)
-                    if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
-                } -ArgumentList $witnessDir -ErrorAction SilentlyContinue
-                Write-Log ("Witness directory created: " + $witnessDir) -Level SUCCESS
+            if (Test-Path $uncPath -ErrorAction SilentlyContinue) {
+                Write-Log "  UNC-Pfad existiert bereits!" -Level SUCCESS
+                $dirCreated = $true
             } else {
-                Write-Log "Witness directory already exists" -Level INFO
+                $newDir = New-Item -Path $uncPath -ItemType Directory -Force -ErrorAction Stop
+                Write-Log "  UNC-Pfad erstellt!" -Level SUCCESS
+                $dirCreated = $true
             }
         } catch {
-            Write-Log ("Witness directory pre-creation skipped: " + $_) -Level WARNING
+            Write-Log ("  Methode 1 fehlgeschlagen: " + $_.Exception.Message) -Level WARNING
         }
 
-        # === DAG erstellen ===
+        # === METHODE 2: WinRM PSSession ===
+        if (-not $dirCreated) {
+            Write-Log "Methode 2: PowerShell Remoting (WinRM)..." -Level INFO
+            try {
+                $session = New-PSSession -ComputerName $witnessSrv -ErrorAction Stop
+                $remoteCheck = Invoke-Command -Session $session -ScriptBlock {
+                    param($dir)
+                    try {
+                        if (-not (Test-Path $dir)) {
+                            New-Item -Path $dir -ItemType Directory -Force | Out-Null
+                        }
+                        if (Test-Path $dir) { return "OK" } else { return "FAILED" }
+                    } catch { return "ERROR: $_" }
+                } -ArgumentList $witnessDir
+                Remove-PSSession $session -ErrorAction SilentlyContinue
+
+                if ($remoteCheck -eq "OK") {
+                    Write-Log "  Remote-Erstellung erfolgreich!" -Level SUCCESS
+                    $dirCreated = $true
+                } else {
+                    Write-Log ("  Methode 2: " + $remoteCheck) -Level WARNING
+                }
+            } catch {
+                Write-Log ("  Methode 2 fehlgeschlagen: " + $_.Exception.Message) -Level WARNING
+                Write-Log "  (WinRM evtl. nicht aktiviert auf DC - Methode 1 ist Standard)" -Level INFO
+            }
+        }
+    }
+        # === METHODE 3: WMIC / CIM Process Create ===
+        if (-not $dirCreated) {
+            Write-Log "Methode 3: Remote-Process via CIM..." -Level INFO
+            try {
+                $cmd = "cmd.exe /c if not exist `"$witnessDir`" mkdir `"$witnessDir`""
+                $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+                    -Arguments @{CommandLine=$cmd} -ComputerName $witnessSrv -ErrorAction Stop
+                if ($r.ReturnValue -eq 0) {
+                    Write-Log "  CIM-Process gestartet, warte 3s..." -Level INFO
+                    Start-Sleep -Seconds 3
+                    if (Test-Path $uncPath -ErrorAction SilentlyContinue) {
+                        Write-Log "  Verzeichnis existiert nun!" -Level SUCCESS
+                        $dirCreated = $true
+                    }
+                }
+            } catch {
+                Write-Log ("  Methode 3 fehlgeschlagen: " + $_.Exception.Message) -Level WARNING
+            }
+        }
+
+        # === FINALE VERIFIKATION (entscheidet wirklich!) ===
+        Start-Sleep -Seconds 2
+        Write-Log "Finale Verifikation des Verzeichnisses..." -Level INFO
+        $reallyExists = Test-Path $uncPath -ErrorAction SilentlyContinue
+
+        if ($reallyExists) {
+            Write-Log ">>> Verzeichnis existiert: $uncPath <<<" -Level SUCCESS
+
+            # Berechtigungen pruefen
+            try {
+                $acl = Get-Acl $uncPath -ErrorAction Stop
+                $hasETSPerm = $false
+                foreach ($a in $acl.Access) {
+                    if ($a.IdentityReference -like "*Exchange Trusted Subsystem*") {
+                        $hasETSPerm = $true
+                        break
+                    }
+                }
+                if (-not $hasETSPerm) {
+                    Write-Log "Setze ETS-Berechtigungen auf Witness-Verzeichnis..." -Level INFO
+                    try {
+                        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                            "Exchange Trusted Subsystem","FullControl",
+                            @("ContainerInherit","ObjectInherit"),"None","Allow")
+                        $acl.SetAccessRule($rule)
+                        Set-Acl -Path $uncPath -AclObject $acl -ErrorAction Stop
+                        Write-Log "Berechtigungen gesetzt" -Level SUCCESS
+                    } catch {
+                        Write-Log ("Berechtigungen konnten nicht gesetzt werden: " + $_) -Level WARNING
+                        Write-Log "(Exchange setzt diese normalerweise selbst beim DAG-Update)" -Level INFO
+                    }
+                }
+            } catch {
+                Write-Log ("ACL-Pruefung uebersprungen: " + $_.Exception.Message) -Level INFO
+            }
+        } else {
+            Write-Log "==============================================" -Level ERROR
+            Write-Log " Witness-Verzeichnis konnte NICHT erstellt werden!" -Level ERROR
+            Write-Log "==============================================" -Level ERROR
+            Write-Log "" -Level INFO
+            Write-Log "Bitte MANUELL auf dem DC '$witnessSrv' ausfuehren:" -Level WARNING
+            Write-Log "" -Level INFO
+            Write-Log "  New-Item -Path '$witnessDir' -ItemType Directory -Force" -Level INFO
+            Write-Log "" -Level INFO
+            Write-Log "Dann auf diesem Server in Exchange Shell:" -Level INFO
+            Write-Log "" -Level INFO
+            Write-Log "  Set-DatabaseAvailabilityGroup -Identity '$name' \\" -Level INFO
+            Write-Log "      -WitnessServer '$witnessSrv' -WitnessDirectory '$witnessDir'" -Level INFO
+            Write-Log "" -Level INFO
+
+            $manualMsg = "Witness-Verzeichnis konnte nicht erstellt werden!`r`n`r`n"
+            $manualMsg += "Moegliche Ursachen:`r`n"
+            $manualMsg += "  - Admin-Share C`$ auf DC nicht erreichbar`r`n"
+            $manualMsg += "  - WinRM nicht aktiviert auf DC`r`n"
+            $manualMsg += "  - Aktueller User hat keine Admin-Rechte auf DC`r`n`r`n"
+            $manualMsg += "Bitte MANUELL auf dem DC ausfuehren:`r`n`r`n"
+            $manualMsg += "  New-Item -Path '$witnessDir' -ItemType Directory -Force`r`n`r`n"
+            $manualMsg += "Danach DAG-Witness in Exchange Shell aktualisieren:`r`n`r`n"
+            $manualMsg += "  Set-DatabaseAvailabilityGroup -Identity '$name' ``r`n"
+            $manualMsg += "      -WitnessServer '$witnessSrv' ``r`n"
+            $manualMsg += "      -WitnessDirectory '$witnessDir'"
+            [System.Windows.Forms.MessageBox]::Show($manualMsg,"Manuelle Aktion noetig",'OK','Warning')
+        }
+
+
+                # === DAG erstellen ===
         if (-not (Get-DatabaseAvailabilityGroup -Identity $name -ErrorAction SilentlyContinue)) {
             Write-Log ("Creating DAG '" + $name + "'...") -Level INFO
             if ($Global:ChkIPlessDAG.Checked) {
