@@ -2951,6 +2951,235 @@ $BtnStartAll.Add_Click({
 })
 $TabRun.Controls.Add($BtnStartAll)
 #endregion
+# === Auto-Check beim Start mit Splash-Screen ===
+$Form.Add_Shown({
+    try {
+        Show-SplashScreen
+
+        $issues = @()
+        $info_items = @()
+
+        # 1. System-Basis-Infos
+        Update-SplashStatus "Lese System-Informationen..."
+        try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+            $ramGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+            $sysDrive = Get-PSDrive -Name ($env:SystemDrive.Replace(":","")) -ErrorAction SilentlyContinue
+            $freeGB = [math]::Round($sysDrive.Free / 1GB, 1)
+
+            $info_items += "OS: $($os.Caption)"
+            $info_items += "RAM: $ramGB GB | Frei C:\: $freeGB GB"
+            $info_items += "Computer: $($cs.Name).$($cs.Domain)"
+
+            if ($ramGB -lt 8)   { $issues += "RAM < 8 GB" }
+            if ($freeGB -lt 30) { $issues += "Freier Speicher < 30 GB" }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # 2. ISO-Auto-Erkennung
+        Update-SplashStatus "Suche nach gemounteten Exchange-ISOs..."
+        $found = @(Find-MountedExchangeISO)
+        $Global:DetectedISOs = $found
+        if ($found.Count -gt 0) {
+            $Global:CmbMountedDrives.Items.Clear()
+            foreach ($f in $found) { [void]$Global:CmbMountedDrives.Items.Add($f.Display) }
+            $Global:CmbMountedDrives.SelectedIndex = 0
+            $Global:RbISOMounted.Checked = $true
+            $Global:RbISOFile.Checked    = $false
+            $info_items += "ISO erkannt: $($found[0].DriveLetter) ($($found[0].VolumeName))"
+        } else {
+            $info_items += "ISO: keine gemountet"
+        }
+        Start-Sleep -Milliseconds 200
+
+        # 3. Voraussetzungen pruefen
+        Update-SplashStatus "Pruefe Windows-Voraussetzungen..."
+        $prereqStatus = Get-PrerequisiteStatus
+        if (-not $prereqStatus.DotNet48)   { $issues += ".NET 4.8 fehlt" }
+        if (-not $prereqStatus.VC2012)     { $issues += "VC++ 2012 fehlt" }
+        if (-not $prereqStatus.VC2013)     { $issues += "VC++ 2013 fehlt" }
+        if (-not $prereqStatus.URLRewrite) { $issues += "URL Rewrite fehlt" }
+        if (-not $prereqStatus.UCMA)       { $issues += "UCMA fehlt" }
+        if (-not $prereqStatus.FeaturesOK) { $issues += ($prereqStatus.MissingFeatures.Count.ToString() + " Win-Features fehlen") }
+        if ($prereqStatus.SMB1Enabled)     { $issues += "SMB1 noch aktiv" }
+        try { $BtnRefreshPrereq.PerformClick(); $Global:PrereqStatusLoaded = $true } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # 4. Domain + Berechtigungen
+        Update-SplashStatus "Pruefe AD-Domain-Mitgliedschaft..."
+        $isDomainJoined = $false
+        try {
+            if ($cs.PartOfDomain) {
+                $isDomainJoined = $true
+                $info_items += "Domain: $($cs.Domain)"
+            } else {
+                $issues += "Server NICHT in Domain"
+            }
+        } catch {}
+
+        $perm = Test-ExchangePrepPermissions
+        if ($isDomainJoined) {
+            if (-not $perm.IsSchemaAdmin -or -not $perm.IsEnterpriseAdmin -or -not $perm.IsDomainAdmin) {
+                $issues += "Berechtigungen unvollstaendig"
+            } else {
+                $info_items += "Berechtigungen: vollstaendig"
+            }
+        }
+        Start-Sleep -Milliseconds 200
+
+        # 5. AD-Status DIREKT abfragen
+        Update-SplashStatus "Pruefe Active-Directory (Schema/Org/Domain)..."
+        if ($isDomainJoined) {
+            try {
+                $domains = Get-ADDomainList
+                $Global:CmbDomainList.Items.Clear()
+                foreach ($d in $domains) { [void]$Global:CmbDomainList.Items.Add($d) }
+                if ($Global:CmbDomainList.Items.Count -gt 0) { $Global:CmbDomainList.SelectedIndex = 0 }
+
+                $adInfo = Get-ExchangeSchemaInfo
+
+                # Org-Name aus AD in TxtOrg uebernehmen
+                if ($adInfo.ExchangeOrgName -and $adInfo.ExchangeOrgName -ne "(noch nicht installiert)") {
+                    if ($Global:TxtOrg.Text -ne $adInfo.ExchangeOrgName) {
+                        $Global:TxtOrg.Text = $adInfo.ExchangeOrgName
+                    }
+                }
+
+                # Labels aktualisieren
+                $Global:LblADSchemaCur.Text = $adInfo.SchemaVersion
+                $Global:LblADSchemaReq.Text = $adInfo.SchemaVersionNeeded
+                $Global:LblADOrgCur.Text    = "$($adInfo.OrgVersion) ($($adInfo.ExchangeOrgName))"
+                $Global:LblADOrgReq.Text    = $adInfo.OrgVersionNeeded
+                $Global:LblADDomCur.Text    = $adInfo.DomainVersion
+                $Global:LblADDomReq.Text    = $adInfo.DomainVersionNeeded
+
+                $schemaIsNum = $adInfo.SchemaVersion -match '^\d+$'
+                $orgIsNum    = $adInfo.OrgVersion -match '^\d+$'
+                $domIsNum    = $adInfo.DomainVersion -match '^\d+$'
+
+                if ($adInfo.SchemaOK -or ($schemaIsNum -and [int]$adInfo.SchemaVersion -gt [int]$adInfo.SchemaVersionNeeded)) {
+                    $Global:LblADSchemaSt.Text = "OK"; $Global:LblADSchemaSt.ForeColor = $Global:ColorAccent2
+                    $Global:ChkPrepSchema.Checked = $false
+                    $Global:ChkPrepSchema.Text = "1. PrepareSchema  (NICHT NOETIG - bereits aktuell)"
+                    $Global:ChkPrepSchema.ForeColor = $Global:ColorAccent2
+                } else {
+                    $Global:LblADSchemaSt.Text = "Update noetig"; $Global:LblADSchemaSt.ForeColor = $Global:ColorWarning
+                    $Global:ChkPrepSchema.Checked = $true
+                    $issues += "AD-Schema-Update"
+                }
+
+                if ($adInfo.OrgOK -or ($orgIsNum -and [int]$adInfo.OrgVersion -gt [int]$adInfo.OrgVersionNeeded)) {
+                    $Global:LblADOrgSt.Text = "OK"; $Global:LblADOrgSt.ForeColor = $Global:ColorAccent2
+                    $Global:ChkPrepAD.Checked = $false
+                    $Global:ChkPrepAD.Text = "2. PrepareAD  (NICHT NOETIG - bereits aktuell)"
+                    $Global:ChkPrepAD.ForeColor = $Global:ColorAccent2
+                } else {
+                    $Global:LblADOrgSt.Text = "Update noetig"; $Global:LblADOrgSt.ForeColor = $Global:ColorWarning
+                    $Global:ChkPrepAD.Checked = $true
+                    $issues += "Exchange-Org-Update"
+                }
+
+                if ($adInfo.DomainOK -or ($domIsNum -and [int]$adInfo.DomainVersion -gt [int]$adInfo.DomainVersionNeeded)) {
+                    $Global:LblADDomSt.Text = "OK"; $Global:LblADDomSt.ForeColor = $Global:ColorAccent2
+                    $Global:ChkPrepDom.Checked = $false
+                    $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (NICHT NOETIG - bereits aktuell)"
+                    $Global:ChkPrepDom.ForeColor = $Global:ColorAccent2
+                } else {
+                    $Global:LblADDomSt.Text = "Update noetig"; $Global:LblADDomSt.ForeColor = $Global:ColorWarning
+                    $Global:ChkPrepDom.Checked = $true
+                    $issues += "Domain-Update"
+                }
+
+                $Global:LblADUser.Text = $perm.Username
+                $pp = @()
+                $pp += if ($perm.IsSchemaAdmin)     { "[X] Schema-Admins" }     else { "[ ] Schema-Admins" }
+                $pp += if ($perm.IsEnterpriseAdmin) { "[X] Enterprise-Admins" } else { "[ ] Enterprise-Admins" }
+                $pp += if ($perm.IsDomainAdmin)     { "[X] Domain-Admins" }     else { "[ ] Domain-Admins" }
+                $Global:LblADPerms.Text = ($pp -join "  |  ")
+                $allOK = $perm.IsSchemaAdmin -and $perm.IsEnterpriseAdmin -and $perm.IsDomainAdmin
+                $Global:LblADPerms.ForeColor = if ($allOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
+
+                $info_items += "AD-Schema: $($adInfo.SchemaVersion) | Org: $($adInfo.OrgVersion) | Dom: $($adInfo.DomainVersion)"
+                $Global:ADStatusLoaded = $true
+            } catch {
+                $issues += "AD-Lookup-Fehler"
+                Write-Log ("AD-Lookup im Splash fehlgeschlagen: " + $_) -Level WARNING
+            }
+        }
+        Start-Sleep -Milliseconds 200
+
+        # 6. Exchange-Services
+        Update-SplashStatus "Pruefe Exchange-Installation..."
+        try {
+            $exchInstalled = Test-Path "C:\Program Files\Microsoft\Exchange Server\V15\Bin"
+            if ($exchInstalled) {
+                $svc = Get-Service -Name "MSExchangeIS" -ErrorAction SilentlyContinue
+                if ($svc -and $svc.Status -eq "Running") {
+                    $info_items += "Exchange: bereits installiert + laeuft"
+                } else {
+                    $info_items += "Exchange: installiert, aber Service nicht laufend"
+                }
+            } else {
+                $info_items += "Exchange: noch nicht installiert"
+            }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # 7. Pending Reboot
+        Update-SplashStatus "Pruefe ausstehenden Neustart..."
+        try {
+            $rebootPending = $false
+            if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+            if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+            if ($rebootPending) { $issues += "Neustart ausstehend" }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # Final
+        if ($issues.Count -eq 0) {
+            Update-SplashStatus "FERTIG - System ist vollstaendig vorbereitet!"
+        } else {
+            Update-SplashStatus ("FERTIG - " + $issues.Count + " Punkt(e) zu erledigen")
+        }
+        Start-Sleep -Milliseconds 1200
+
+        Close-SplashScreen
+
+        # Zusammenfassungs-Log
+        Write-Log "==============================================" -Level INFO
+        Write-Log " SYSTEM-CHECK ABGESCHLOSSEN" -Level INFO
+        Write-Log "==============================================" -Level INFO
+        foreach ($i in $info_items) { Write-Log ("  " + $i) -Level INFO }
+        Write-Log "----------------------------------------------" -Level INFO
+        if ($issues.Count -eq 0) {
+            Write-Log " ALLES OK - bereit zur Konfiguration!" -Level SUCCESS
+        } else {
+            Write-Log (" ERFORDERLICHE AKTIONEN (" + $issues.Count + "):") -Level WARNING
+            foreach ($i in $issues) { Write-Log ("   - " + $i) -Level WARNING }
+        }
+        Write-Log "==============================================" -Level INFO
+
+        # MessageBox bei Issues + Auto-Tab-Wahl
+        if ($issues.Count -gt 0) {
+            $msg = "System-Pruefung abgeschlossen!`r`n`r`nErforderliche Aktionen ($($issues.Count)):`r`n"
+            foreach ($i in $issues) { $msg += "  - $i`r`n" }
+            [System.Windows.Forms.MessageBox]::Show($msg, "System-Check", 'OK', 'Information')
+
+            $hasPrereqIssue = $false; $hasADIssue = $false
+            foreach ($i in $issues) {
+                if ($i -match "VC\+\+|\.NET|URL|UCMA|Win-Features|SMB1") { $hasPrereqIssue = $true }
+                if ($i -match "Schema|Org|Domain")                       { $hasADIssue = $true }
+            }
+            if ($hasPrereqIssue) { $TabControl.SelectedTab = $TabPrereq }
+            elseif ($hasADIssue) { $TabControl.SelectedTab = $TabADPrep }
+        }
+    }
+    catch {
+        Close-SplashScreen
+        Write-Log ("Fehler beim Auto-Start: " + $_) -Level ERROR
+    }
+})
 
 #region ============================ STATUSZEILE ============================
 $Global:StatusLabel = New-Object System.Windows.Forms.Label
