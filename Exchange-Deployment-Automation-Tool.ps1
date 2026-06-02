@@ -1996,20 +1996,26 @@ $TabControl.Add_SelectedIndexChanged({
 #endregion
 
 #region ============================ TAB: INSTALLATION ============================
+
+# === ISO-Quelle ===
 $GrpISO = New-GroupBox "Exchange ISO-Quelle" 10 10 1080 165
 $TabInstall.Controls.Add($GrpISO)
 
 $Global:RbISOFile = New-Object System.Windows.Forms.RadioButton
 $Global:RbISOFile.Text="ISO-Datei vom Dateisystem auswaehlen"
-$Global:RbISOFile.Location=New-Object System.Drawing.Point(15,28); $Global:RbISOFile.Size=New-Object System.Drawing.Size(400,24)
-$Global:RbISOFile.Checked=$true; $Global:RbISOFile.BackColor=[System.Drawing.Color]::Transparent
+$Global:RbISOFile.Location=New-Object System.Drawing.Point(15,28)
+$Global:RbISOFile.Size=New-Object System.Drawing.Size(400,24)
+$Global:RbISOFile.Checked=$true
+$Global:RbISOFile.BackColor=[System.Drawing.Color]::Transparent
 $Global:RbISOFile.ForeColor=$Global:ColorText
 $GrpISO.Controls.Add($Global:RbISOFile)
 
 $Global:RbISOMounted = New-Object System.Windows.Forms.RadioButton
 $Global:RbISOMounted.Text="Bereits gemountetes Laufwerk verwenden (Auto-Erkennung)"
-$Global:RbISOMounted.Location=New-Object System.Drawing.Point(15,54); $Global:RbISOMounted.Size=New-Object System.Drawing.Size(450,24)
-$Global:RbISOMounted.BackColor=[System.Drawing.Color]::Transparent; $Global:RbISOMounted.ForeColor=$Global:ColorText
+$Global:RbISOMounted.Location=New-Object System.Drawing.Point(15,54)
+$Global:RbISOMounted.Size=New-Object System.Drawing.Size(450,24)
+$Global:RbISOMounted.BackColor=[System.Drawing.Color]::Transparent
+$Global:RbISOMounted.ForeColor=$Global:ColorText
 $GrpISO.Controls.Add($Global:RbISOMounted)
 
 $GrpISO.Controls.Add( (New-Label "ISO-Datei:" 35 90 100) )
@@ -2026,9 +2032,11 @@ $GrpISO.Controls.Add($BtnBrowseISO)
 
 $GrpISO.Controls.Add( (New-Label "Laufwerk:" 35 122 100) )
 $Global:CmbMountedDrives = New-Object System.Windows.Forms.ComboBox
-$Global:CmbMountedDrives.Location=New-Object System.Drawing.Point(145,120); $Global:CmbMountedDrives.Size=New-Object System.Drawing.Size(760,22)
+$Global:CmbMountedDrives.Location=New-Object System.Drawing.Point(145,120)
+$Global:CmbMountedDrives.Size=New-Object System.Drawing.Size(760,22)
 $Global:CmbMountedDrives.DropDownStyle="DropDownList"
-$Global:CmbMountedDrives.BackColor=$Global:ColorInputBg; $Global:CmbMountedDrives.ForeColor=$Global:ColorText
+$Global:CmbMountedDrives.BackColor=$Global:ColorInputBg
+$Global:CmbMountedDrives.ForeColor=$Global:ColorText
 $Global:CmbMountedDrives.Font=$Global:FontDefault
 $GrpISO.Controls.Add($Global:CmbMountedDrives)
 
@@ -2054,45 +2062,16 @@ $BtnDetectISO.Add_Click({
     } catch { Write-Log ("Fehler: " + $_) -Level ERROR }
 })
 $GrpISO.Controls.Add($BtnDetectISO)
-# === NEU: Rollen-Auswahl ===
-$GrpSetup.Controls.Add( (New-Label "Server-Rollen: *" 15 145 150 $Global:FontBold) )
 
-$Global:ChkRoleMailbox = New-CheckBox "Mailbox-Server (Standard)" 175 145 250 $true
-$GrpSetup.Controls.Add($Global:ChkRoleMailbox)
-
-$Global:ChkRoleEdge = New-CheckBox "Edge-Transport (nur in DMZ)" 440 145 250 $false
-$GrpSetup.Controls.Add($Global:ChkRoleEdge)
-
-$Global:ChkRoleMgmt = New-CheckBox "Management-Tools (empfohlen)" 705 145 280 $true
-$GrpSetup.Controls.Add($Global:ChkRoleMgmt)
-
-# Edge + Mailbox schliessen sich aus
-$Global:ChkRoleEdge.Add_CheckedChanged({
-    if ($Global:ChkRoleEdge.Checked) {
-        $Global:ChkRoleMailbox.Checked = $false
-        $Global:ChkRoleMailbox.Enabled = $false
-        [System.Windows.Forms.MessageBox]::Show(
-            "Edge-Transport kann NICHT zusammen mit Mailbox-Rolle installiert werden!`r`n`r`nEdge-Server muessen in der DMZ (Workgroup) sein, NICHT in der Domain.",
-            "Edge-Server",'OK','Warning')
-    } else {
-        $Global:ChkRoleMailbox.Enabled = $true
-        $Global:ChkRoleMailbox.Checked = $true
-    }
-})
-
-# Diagnostikdaten
-$GrpSetup.Controls.Add( (New-Label "Diagnostikdaten:" 15 175 150) )
-$Global:ChkDiagData = New-CheckBox "An Microsoft senden (DataON) - Standard: OFF" 175 175 500 $false
-$GrpSetup.Controls.Add($Global:ChkDiagData)
-
-$GrpSetup = New-GroupBox "Exchange Setup-Parameter" 10 185 1080 210
+# === Setup-Parameter (HOEHE 220!) ===
+$GrpSetup = New-GroupBox "Exchange Setup-Parameter" 10 185 1080 220
 $TabInstall.Controls.Add($GrpSetup)
 
+# Organisation + Live-Validierung
 $GrpSetup.Controls.Add( (New-Label "Organisation: *" 15 28 150) )
 $Global:TxtOrg = New-TextBox 175 26 400 "Contoso"
 $GrpSetup.Controls.Add($Global:TxtOrg)
 
-# === NEU: Visuelle Anzeige + Sync mit AD ===
 $Global:LblOrgWarning = New-Object System.Windows.Forms.Label
 $Global:LblOrgWarning.Location  = New-Object System.Drawing.Point(580, 28)
 $Global:LblOrgWarning.Size      = New-Object System.Drawing.Size(465, 20)
@@ -2101,7 +2080,6 @@ $Global:LblOrgWarning.BackColor = [System.Drawing.Color]::Transparent
 $Global:LblOrgWarning.Text      = ""
 $GrpSetup.Controls.Add($Global:LblOrgWarning)
 
-# Beim Tippen pruefen
 $Global:TxtOrg.Add_TextChanged({
     try {
         if (-not $Global:LblOrgWarning) { return }
@@ -2126,26 +2104,58 @@ $Global:TxtOrg.Add_TextChanged({
             $Global:LblOrgWarning.Text = "  (frische Installation - Org wird neu erstellt)"
             $Global:LblOrgWarning.ForeColor = $Global:ColorTextDim
         }
-    } catch {
-        # AD nicht erreichbar - kein Hinweis
-    }
+    } catch {}
 })
 
-
+# Servername
 $GrpSetup.Controls.Add( (New-Label "Servername:" 15 58 150) )
 $Global:TxtServer = New-TextBox 175 56 400 $env:COMPUTERNAME
 $GrpSetup.Controls.Add($Global:TxtServer)
 
+# Installations-Pfad
 $GrpSetup.Controls.Add( (New-Label "Installations-Pfad:" 15 88 150) )
 $Global:TxtInstallPath = New-TextBox 175 86 870 $Global:DefaultInstallPath
 $GrpSetup.Controls.Add($Global:TxtInstallPath)
 
+# AD-Domaene
 $GrpSetup.Controls.Add( (New-Label "AD-Domaene:" 15 115 150) )
 $Global:TxtDomain = New-TextBox 175 113 400
 try { $Global:TxtDomain.Text = (Get-CimInstance Win32_ComputerSystem).Domain } catch { $Global:TxtDomain.Text = "contoso.local" }
 $GrpSetup.Controls.Add($Global:TxtDomain)
 
-$GrpOpts = New-GroupBox "Installations-Optionen" 10 340 1080 240
+# === NEU: Server-Rollen ===
+$GrpSetup.Controls.Add( (New-Label "Server-Rollen: *" 15 145 150 $Global:FontBold) )
+
+$Global:ChkRoleMailbox = New-CheckBox "Mailbox-Server (Standard)" 175 145 250 $true
+$GrpSetup.Controls.Add($Global:ChkRoleMailbox)
+
+$Global:ChkRoleEdge = New-CheckBox "Edge-Transport (DMZ-Server)" 440 145 270 $false
+$GrpSetup.Controls.Add($Global:ChkRoleEdge)
+
+$Global:ChkRoleMgmt = New-CheckBox "Management-Tools" 720 145 280 $true
+$GrpSetup.Controls.Add($Global:ChkRoleMgmt)
+
+# Edge + Mailbox schliessen sich aus
+$Global:ChkRoleEdge.Add_CheckedChanged({
+    if ($Global:ChkRoleEdge.Checked) {
+        $Global:ChkRoleMailbox.Checked = $false
+        $Global:ChkRoleMailbox.Enabled = $false
+        [System.Windows.Forms.MessageBox]::Show(
+            "Edge-Transport kann NICHT zusammen mit Mailbox-Rolle installiert werden!`r`n`r`nEdge-Server muessen in der DMZ (Workgroup) sein, NICHT in der Domain.",
+            "Edge-Server",'OK','Warning')
+    } else {
+        $Global:ChkRoleMailbox.Enabled = $true
+        $Global:ChkRoleMailbox.Checked = $true
+    }
+})
+
+# === NEU: Diagnostikdaten ===
+$GrpSetup.Controls.Add( (New-Label "Diagnostikdaten:" 15 175 150) )
+$Global:ChkDiagData = New-CheckBox "An Microsoft senden (Standard: AUS)" 175 175 500 $false
+$GrpSetup.Controls.Add($Global:ChkDiagData)
+
+# === Installations-Optionen (Y verschoben auf 415!) ===
+$GrpOpts = New-GroupBox "Installations-Optionen" 10 415 1080 175
 $TabInstall.Controls.Add($GrpOpts)
 
 $Global:Checks = @{}
@@ -2155,281 +2165,21 @@ $opts = @(
     @{Key="MountISO";          Text="ISO automatisch mounten (falls Datei)";    Default=$true;  Col=0; Row=2},
     @{Key="DoADPrep";          Text="AD-Vorbereitung im Master-Workflow";       Default=$true;  Col=0; Row=3},
     @{Key="InstallExchange";   Text="Exchange Server installieren";             Default=$true;  Col=0; Row=4},
-    @{Key="InstallAntispam";   Text="Antispam-Agenten installieren";            Default=$true;  Col=0; Row=5},
-    @{Key="ConfigAntispam";    Text="Antispam-Filter konfigurieren";            Default=$true;  Col=0; Row=6},
-    @{Key="VerifyInstall";     Text="Installation verifizieren";                Default=$true;  Col=1; Row=0},
-    @{Key="ApplyTLS";          Text="TLS-Hardening anwenden";                   Default=$true;  Col=1; Row=1},
-    @{Key="CreateDBs";         Text="Postfach-Datenbanken anlegen";             Default=$false; Col=1; Row=2},
-    @{Key="CreateDAG";         Text="DAG erstellen + Mitglieder";               Default=$false; Col=1; Row=3},
-    @{Key="DismountISO";       Text="ISO am Ende automatisch unmounten";        Default=$true;  Col=1; Row=4},
-    @{Key="ForceAdminCheck";   Text="Strikte Admin-Pruefung";                   Default=$true;  Col=1; Row=5},
-    @{Key="ContinueOnError";   Text="Bei Fehlern weiter machen";                Default=$false; Col=1; Row=6}
+    @{Key="InstallAntispam";   Text="Antispam-Agenten installieren";            Default=$true;  Col=1; Row=0},
+    @{Key="ConfigAntispam";    Text="Antispam-Filter konfigurieren";            Default=$true;  Col=1; Row=1},
+    @{Key="VerifyInstall";     Text="Installation verifizieren";                Default=$true;  Col=1; Row=2},
+    @{Key="ApplyTLS";          Text="TLS-Hardening anwenden";                   Default=$true;  Col=1; Row=3},
+    @{Key="CreateDBs";         Text="Postfach-Datenbanken anlegen";             Default=$false; Col=1; Row=4},
+    @{Key="CreateDAG";         Text="DAG erstellen + Mitglieder";               Default=$false; Col=2; Row=0},
+    @{Key="DismountISO";       Text="ISO am Ende automatisch unmounten";        Default=$true;  Col=2; Row=1},
+    @{Key="ForceAdminCheck";   Text="Strikte Admin-Pruefung";                   Default=$true;  Col=2; Row=2},
+    @{Key="ContinueOnError";   Text="Bei Fehlern weiter machen";                Default=$false; Col=2; Row=3}
 )
 foreach ($o in $opts) {
-    $cb = New-CheckBox $o.Text (20 + $o.Col*510) (28 + $o.Row*30) 490 $o.Default
+    $cb = New-CheckBox $o.Text (20 + $o.Col*355) (28 + $o.Row*28) 350 $o.Default
     $GrpOpts.Controls.Add($cb)
     $Global:Checks[$o.Key] = $cb
 }
-
-$Form.Add_Shown({
-    try {
-        Show-SplashScreen
-
-        $issues = @()
-        $info_items = @()
-
-        # === 1. System-Basis-Infos ===
-        Update-SplashStatus "Lese System-Informationen..."
-        try {
-            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
-            $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
-            $ramGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
-            $sysDrive = Get-PSDrive -Name ($env:SystemDrive.Replace(":","")) -ErrorAction SilentlyContinue
-            $freeGB = [math]::Round($sysDrive.Free / 1GB, 1)
-
-            $info_items += "OS: $($os.Caption)"
-            $info_items += "RAM: $ramGB GB"
-            $info_items += "Frei C:\: $freeGB GB"
-            $info_items += "Computer: $($cs.Name).$($cs.Domain)"
-
-            if ($ramGB -lt 8)   { $issues += "RAM < 8 GB" }
-            if ($freeGB -lt 15) { $issues += "Freier Speicher < 15 GB" }
-        } catch {}
-        Start-Sleep -Milliseconds 200
-
-        # === 2. ISO-Auto-Erkennung ===
-        Update-SplashStatus "Suche nach gemounteten Exchange-ISOs..."
-        $found = @(Find-MountedExchangeISO)
-        $Global:DetectedISOs = $found
-        if ($found.Count -gt 0) {
-            $Global:CmbMountedDrives.Items.Clear()
-            foreach ($f in $found) { [void]$Global:CmbMountedDrives.Items.Add($f.Display) }
-            $Global:CmbMountedDrives.SelectedIndex = 0
-            $Global:RbISOMounted.Checked = $true
-            $Global:RbISOFile.Checked    = $false
-            $info_items += "ISO erkannt: $($found[0].DriveLetter) ($($found[0].VolumeName))"
-        } else {
-            $info_items += "ISO: keine gemountet"
-        }
-        Start-Sleep -Milliseconds 200
-
-        # === 3. Voraussetzungen pruefen ===
-        Update-SplashStatus "Pruefe Windows-Voraussetzungen..."
-        $prereqStatus = Get-PrerequisiteStatus
-        if (-not $prereqStatus.DotNet48)   { $issues += ".NET 4.8 fehlt" }
-        if (-not $prereqStatus.VC2012)     { $issues += "VC++ 2012 fehlt" }
-        if (-not $prereqStatus.VC2013)     { $issues += "VC++ 2013 fehlt" }
-        if (-not $prereqStatus.URLRewrite) { $issues += "URL Rewrite fehlt" }
-        if (-not $prereqStatus.UCMA)       { $issues += "UCMA fehlt" }
-        if (-not $prereqStatus.FeaturesOK) { $issues += ($prereqStatus.MissingFeatures.Count.ToString() + " Win-Features fehlen") }
-        if ($prereqStatus.SMB1Enabled)     { $issues += "SMB1 noch aktiv" }
-
-        try {
-            $BtnRefreshPrereq.PerformClick()
-            $Global:PrereqStatusLoaded = $true
-        } catch {}
-        Start-Sleep -Milliseconds 200
-
-        # === 4. AD-Domain-Mitgliedschaft + Berechtigungen ===
-        Update-SplashStatus "Pruefe AD-Domain-Mitgliedschaft..."
-        $isDomainJoined = $false
-        try {
-            if ($cs.PartOfDomain) {
-                $isDomainJoined = $true
-                $info_items += "Domain: $($cs.Domain)"
-            } else {
-                $issues += "Server NICHT in Domain"
-            }
-        } catch {}
-
-        $perm = Test-ExchangePrepPermissions
-        if ($isDomainJoined) {
-            if (-not $perm.IsSchemaAdmin -or -not $perm.IsEnterpriseAdmin -or -not $perm.IsDomainAdmin) {
-                $issues += "Berechtigungen unvollstaendig"
-            } else {
-                $info_items += "Berechtigungen: vollstaendig"
-            }
-        }
-        Start-Sleep -Milliseconds 200
-
-        # === 5. AD-Status DIREKT (ohne Button) abfragen ===
-        Update-SplashStatus "Pruefe Active-Directory (Schema/Org/Domain)..."
-        if ($isDomainJoined) {
-            try {
-                # Domains-Liste
-                $domains = Get-ADDomainList
-                $Global:CmbDomainList.Items.Clear()
-                foreach ($d in $domains) { [void]$Global:CmbDomainList.Items.Add($d) }
-                if ($Global:CmbDomainList.Items.Count -gt 0) { $Global:CmbDomainList.SelectedIndex = 0 }
-
-                # Direkt aufrufen (umgeht Button-Probleme beim Form_Shown)
-                $adInfo = Get-ExchangeSchemaInfo
-
-                # Labels manuell setzen
-                $Global:LblADSchemaCur.Text = $adInfo.SchemaVersion
-                $Global:LblADSchemaReq.Text = $adInfo.SchemaVersionNeeded
-                $Global:LblADOrgCur.Text    = "$($adInfo.OrgVersion) ($($adInfo.ExchangeOrgName))"
-                $Global:LblADOrgReq.Text    = $adInfo.OrgVersionNeeded
-                $Global:LblADDomCur.Text    = $adInfo.DomainVersion
-                $Global:LblADDomReq.Text    = $adInfo.DomainVersionNeeded
-
-                # Status-Texte mit Newer-Erkennung
-                $schemaIsNum = $adInfo.SchemaVersion -match '^\d+$'
-                $orgIsNum    = $adInfo.OrgVersion -match '^\d+$'
-                $domIsNum    = $adInfo.DomainVersion -match '^\d+$'
-
-                if ($adInfo.SchemaOK -or ($schemaIsNum -and [int]$adInfo.SchemaVersion -gt [int]$adInfo.SchemaVersionNeeded)) {
-                    $Global:LblADSchemaSt.Text = "OK"; $Global:LblADSchemaSt.ForeColor = $Global:ColorAccent2
-                    $Global:ChkPrepSchema.Checked = $false
-                    $Global:ChkPrepSchema.Text = "1. PrepareSchema  (NICHT NOETIG - bereits aktuell)"
-                    $Global:ChkPrepSchema.ForeColor = $Global:ColorAccent2
-                } else {
-                    $Global:LblADSchemaSt.Text = "Update noetig"; $Global:LblADSchemaSt.ForeColor = $Global:ColorWarning
-                    $Global:ChkPrepSchema.Checked = $true
-                    $issues += "AD-Schema-Update"
-                }
-
-                if ($adInfo.OrgOK -or ($orgIsNum -and [int]$adInfo.OrgVersion -gt [int]$adInfo.OrgVersionNeeded)) {
-                    $Global:LblADOrgSt.Text = "OK"; $Global:LblADOrgSt.ForeColor = $Global:ColorAccent2
-                    $Global:ChkPrepAD.Checked = $false
-                    $Global:ChkPrepAD.Text = "2. PrepareAD  (NICHT NOETIG - bereits aktuell)"
-                    $Global:ChkPrepAD.ForeColor = $Global:ColorAccent2
-                } else {
-                    $Global:LblADOrgSt.Text = "Update noetig"; $Global:LblADOrgSt.ForeColor = $Global:ColorWarning
-                    $Global:ChkPrepAD.Checked = $true
-                    $issues += "Exchange-Org-Update"
-                }
-
-                if ($adInfo.DomainOK -or ($domIsNum -and [int]$adInfo.DomainVersion -gt [int]$adInfo.DomainVersionNeeded)) {
-                    $Global:LblADDomSt.Text = "OK"; $Global:LblADDomSt.ForeColor = $Global:ColorAccent2
-                    $Global:ChkPrepDom.Checked = $false
-                    $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (NICHT NOETIG - bereits aktuell)"
-                    $Global:ChkPrepDom.ForeColor = $Global:ColorAccent2
-                } else {
-                    $Global:LblADDomSt.Text = "Update noetig"; $Global:LblADDomSt.ForeColor = $Global:ColorWarning
-                    $Global:ChkPrepDom.Checked = $true
-                    $issues += "Domain-Update"
-                }
-
-                # User + Berechtigungen anzeigen
-                $Global:LblADUser.Text = $perm.Username
-                $pp = @()
-                $pp += if ($perm.IsSchemaAdmin)     { "[X] Schema-Admins" }     else { "[ ] Schema-Admins" }
-                $pp += if ($perm.IsEnterpriseAdmin) { "[X] Enterprise-Admins" } else { "[ ] Enterprise-Admins" }
-                $pp += if ($perm.IsDomainAdmin)     { "[X] Domain-Admins" }     else { "[ ] Domain-Admins" }
-                $Global:LblADPerms.Text = ($pp -join "  |  ")
-                $allPermsOK = $perm.IsSchemaAdmin -and $perm.IsEnterpriseAdmin -and $perm.IsDomainAdmin
-                $Global:LblADPerms.ForeColor = if ($allPermsOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
-
-                $info_items += "AD-Schema: $($adInfo.SchemaVersion) | Org: $($adInfo.OrgVersion) | Dom: $($adInfo.DomainVersion)"
-                $Global:ADStatusLoaded = $true
-            } catch {
-                $issues += "AD-Lookup-Fehler"
-                Write-Log ("AD-Lookup im Splash fehlgeschlagen: " + $_) -Level WARNING
-            }
-        }
-		# === Direkt im Splash: Org-Name aus AD nach TxtOrg uebernehmen ===
-if ($adInfo.ExchangeOrgName -and $adInfo.ExchangeOrgName -ne "(noch nicht installiert)") {
-    if ($Global:TxtOrg.Text -ne $adInfo.ExchangeOrgName) {
-        Write-Log ("  Auto-Sync: Org-Name '" + $Global:TxtOrg.Text + "' -> '" + $adInfo.ExchangeOrgName + "' (aus AD)") -Level INFO
-        $Global:TxtOrg.Text = $adInfo.ExchangeOrgName
-    }
-}
-        Start-Sleep -Milliseconds 200
-
-        # === 6. Exchange-Services pruefen (falls schon installiert) ===
-        Update-SplashStatus "Pruefe ob Exchange bereits installiert ist..."
-        try {
-            $exchInstalled = Test-Path "C:\Program Files\Microsoft\Exchange Server\V15\Bin"
-            if ($exchInstalled) {
-                $svc = Get-Service -Name "MSExchangeIS" -ErrorAction SilentlyContinue
-                if ($svc -and $svc.Status -eq "Running") {
-                    $info_items += "Exchange: bereits installiert + laeuft"
-                } elseif ($svc) {
-                    $info_items += ("Exchange: installiert, Service-Status: " + $svc.Status)
-                } else {
-                    $info_items += "Exchange-Pfad da, aber kein MSExchangeIS-Service"
-                }
-            } else {
-                $info_items += "Exchange: noch nicht installiert"
-            }
-        } catch {}
-        Start-Sleep -Milliseconds 200
-
-        # === 7. TLS-Status kurz pruefen ===
-        Update-SplashStatus "Pruefe TLS-Konfiguration..."
-        try {
-            $tls12Path = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Server"
-            $tls12 = if (Test-Path $tls12Path) { (Get-ItemProperty -Path $tls12Path -Name Enabled -ErrorAction SilentlyContinue).Enabled } else { $null }
-            if ($tls12 -and $tls12 -ne 0) {
-                $info_items += "TLS 1.2: explizit aktiviert"
-            } else {
-                $info_items += "TLS 1.2: Standard-Konfiguration"
-            }
-        } catch {}
-        Start-Sleep -Milliseconds 200
-
-        # === 8. Pending Reboot? ===
-        Update-SplashStatus "Pruefe ausstehenden Neustart..."
-        try {
-            $rebootPending = $false
-            if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -ErrorAction SilentlyContinue) { $rebootPending = $true }
-            if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -ErrorAction SilentlyContinue) { $rebootPending = $true }
-            if ($rebootPending) {
-                $issues += "Neustart ausstehend"
-            }
-        } catch {}
-        Start-Sleep -Milliseconds 200
-
-        # === 9. Final-Status ===
-        if ($issues.Count -eq 0) {
-            Update-SplashStatus "FERTIG - System ist vollstaendig vorbereitet!"
-        } else {
-            Update-SplashStatus ("FERTIG - " + $issues.Count + " Punkt(e) zu erledigen")
-        }
-        Start-Sleep -Milliseconds 1200
-
-        Close-SplashScreen
-
-        # === Zusammenfassungs-Log ===
-        Write-Log "==============================================" -Level INFO
-        Write-Log " SYSTEM-CHECK ABGESCHLOSSEN" -Level INFO
-        Write-Log "==============================================" -Level INFO
-        foreach ($i in $info_items) { Write-Log ("  " + $i) -Level INFO }
-        Write-Log "----------------------------------------------" -Level INFO
-        if ($issues.Count -eq 0) {
-            Write-Log " ALLES OK - bereit zur Konfiguration!" -Level SUCCESS
-        } else {
-            Write-Log (" ERFORDERLICHE AKTIONEN (" + $issues.Count + "):") -Level WARNING
-            foreach ($i in $issues) { Write-Log ("   - " + $i) -Level WARNING }
-        }
-        Write-Log "==============================================" -Level INFO
-
-        # === MessageBox bei Issues ===
-        if ($issues.Count -gt 0) {
-            $msg = "System-Pruefung abgeschlossen!`r`n`r`n"
-            $msg += "Erforderliche Aktionen ($($issues.Count)):`r`n"
-            foreach ($i in $issues) { $msg += "  - $i`r`n" }
-            $msg += "`r`nBitte die entsprechenden Tabs durchgehen."
-            [System.Windows.Forms.MessageBox]::Show($msg, "System-Check abgeschlossen", 'OK', 'Information')
-
-            # Smart Tab-Wahl: bei Voraussetzungen-Issues -> Voraussetzungen, bei AD-Issues -> AD
-            $hasPrereqIssue = $false
-            $hasADIssue     = $false
-            foreach ($i in $issues) {
-                if ($i -match "VC\+\+|\.NET|URL|UCMA|Win-Features|SMB1") { $hasPrereqIssue = $true }
-                if ($i -match "Schema|Org|Domain")                       { $hasADIssue = $true }
-            }
-            if ($hasPrereqIssue) { $TabControl.SelectedTab = $TabPrereq }
-            elseif ($hasADIssue) { $TabControl.SelectedTab = $TabADPrep }
-        }
-    }
-    catch {
-        Close-SplashScreen
-        Write-Log ("Fehler beim Auto-Start: " + $_) -Level ERROR
-    }
-})
-
 
 #endregion
 
@@ -3112,8 +2862,8 @@ $BtnStartAll.Add_Click({
             }
         }
 
-        # SCHRITT 3: Exchange installieren
-                if ($Global:Checks["InstallExchange"].Checked -and $ExchangeSetupPath) {
+                # SCHRITT 3: Exchange installieren mit Rollen-Auswahl
+        if ($Global:Checks["InstallExchange"].Checked -and $ExchangeSetupPath) {
             Write-Log "--- SCHRITT 3: Exchange Setup ---" -Level INFO
 
             # Rollen zusammenbauen
@@ -3138,6 +2888,7 @@ $BtnStartAll.Add_Click({
                 }
             }
         }
+
 
 
         # SCHRITT 4: Antispam-Agenten
