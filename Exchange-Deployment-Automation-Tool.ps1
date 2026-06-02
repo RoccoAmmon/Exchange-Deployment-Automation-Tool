@@ -1066,14 +1066,20 @@ function Install-ExchangeServer {
         }
 
         # === Rollen-Zusammenstellung ===
+        # WICHTIG: Mit Exchange 2019 SE ist 'ManagementTools' AUTOMATISCH in 'Mailbox' enthalten!
+        # Es muss NUR explizit gesetzt werden wenn man NUR die Tools ohne Mailbox-Rolle will.
         $rolesList = @()
         foreach ($r in ($Roles -split ',')) {
             $r = $r.Trim()
             if ($r) { $rolesList += $r }
         }
-        if ($IncludeManagementTools -and ($rolesList -notcontains "ManagementTools")) {
+
+        # ManagementTools nur extra hinzufuegen wenn Mailbox NICHT installiert wird
+        # (Bei Edge-Server-Only-Setups oder reinen Management-Workstations)
+        if ($IncludeManagementTools -and ($rolesList -notcontains "Mailbox") -and ($rolesList -notcontains "ManagementTools")) {
             $rolesList += "ManagementTools"
         }
+
         if ($rolesList.Count -eq 0) {
             Write-Log "FEHLER: Keine Rolle zur Installation ausgewaehlt!" -Level ERROR
             return $false
@@ -1081,12 +1087,15 @@ function Install-ExchangeServer {
         $rolesStr = $rolesList -join ','
 
         Write-Log ("Rollen zur Installation: " + $rolesStr) -Level INFO
+        if ($rolesList -contains "Mailbox") {
+            Write-Log "  (ManagementTools ist in Mailbox-Rolle automatisch enthalten)" -Level INFO
+        }
 
-        # === Argumente bauen ===
-        # WICHTIG: /Roles statt /role - das war der Bug!
+        # === Argumente bauen (KORREKTE Syntax!) ===
         $arguments = @()
         $arguments += "/Mode:Install"
-        $arguments += "/Roles:$rolesStr"
+        # WICHTIG: /Role: oder Kurzform /r:  - NICHT /Roles:!
+        $arguments += "/Role:$rolesStr"
         $arguments += "/InstallWindowsComponents"
 
         # Lizenz-Akzeptanz
@@ -1099,7 +1108,7 @@ function Install-ExchangeServer {
         # Org-Name nur bei Erstinstallation
         if (-not $existingOrg) {
             if (-not $OrgName) {
-                Write-Log "  FEHLER: Bei Erstinstallation muss Organisationsname angegeben werden!" -Level ERROR
+                Write-Log "FEHLER: Bei Erstinstallation muss Organisationsname angegeben werden!" -Level ERROR
                 return $false
             }
             $arguments += "/OrganizationName:$OrgName"
