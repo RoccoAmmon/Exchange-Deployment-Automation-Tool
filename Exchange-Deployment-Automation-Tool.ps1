@@ -1943,38 +1943,212 @@ $BtnCreateDAGNow.Add_Click({
             } catch {}
         }
 
-        if ($isDC) {
+          if ($isDC) {
             $r = [System.Windows.Forms.MessageBox]::Show(
                 "ACHTUNG: '$witnessSrv' ist ein Domain Controller!`r`n`r`n" +
                 "Microsoft empfiehlt KEINEN DC als Witness.`r`n`r`n" +
-                "Wenn Sie trotzdem fortfahren:`r`n" +
-                "  - 'Exchange Trusted Subsystem' wird zu Builtin\Administrators`r`n" +
-                "    der Domain hinzugefuegt (= Domain-Admin-Rechte!)`r`n" +
-                "  - Witness-Verzeichnis wird auf dem DC angelegt`r`n`r`n" +
+                "Bei Fortfahren wird 'Exchange Trusted Subsystem' zur`r`n" +
+                "Builtin\Administrators-Gruppe der Domain hinzugefuegt.`r`n`r`n" +
                 "Fortfahren?",
                 "DC als Witness", 'YesNo', 'Warning')
             if ($r -ne "Yes") { return }
 
-            Write-Log "Adding 'Exchange Trusted Subsystem' to Builtin\Administrators..." -Level WARNING
+            Write-Log "==============================================" -Level INFO
+            Write-Log " DC-Sondersetup: ETS zu Builtin\Administrators" -Level INFO
+            Write-Log " (sprachunabhaengig per SID)" -Level INFO
+            Write-Log "==============================================" -Level INFO
+
+            # ===== SID-basierter Lookup (sprachunabhaengig!) =====
+            # S-1-5-32-544 = BUILTIN\Administrators (immer, egal welche Sprache)
+            $builtinAdminsSID = "S-1-5-32-544"
+            $adminGroupName = $null
+            $adminGroupDN = $null
+            $etsDN = $null
+            $etsSAM = "Exchange Trusted Subsystem"
+
             try {
-                # Versuch 1: AD-Modul
-                Import-Module ActiveDirectory -ErrorAction SilentlyContinue
-                Add-ADGroupMember -Identity "Administrators" -Members "Exchange Trusted Subsystem" -ErrorAction Stop
-                Write-Log "Added via AD-Module" -Level SUCCESS
+                # Builtin\Administrators ueber SID finden
+                $sidObj = New-Object System.Security.Principal.SecurityIdentifier($builtinAdminsSID)
+                $ntAccount = $sidObj.Translate([System.Security.Principal.NTAccount])
+                # Format: "BUILTIN\Administrators" (DE: "VORDEFINIERT\Administratoren")
+                $adminGroupName = $ntAccount.Value -replace '^[^\\]+\\',''
+                Write-Log ("Builtin-Admin-Gruppe (lokalisierter Name): '" + $adminGroupName + "'") -Level INFO
+
+                # DN ueber LDAP holen
+                $rootDSE = [ADSI]"LDAP://RootDSE"
+                $domainDN = $rootDSE.Properties["defaultNamingContext"][0]
+
+                # Suche nach SID in CN=Builtin
+                $searcher = New-Object System.DirectoryServices.DirectorySearcher
+                $searcher.SearchRoot = [ADSI]("LDAP://CN=Builtin," + $domainDN)
+                # objectSID als Byte-Array fuer LDAP-Filter konvertieren
+                $sidBytes = New-Object byte[] $sidObj.BinaryLength
+                $sidObj.GetBinaryForm($sidBytes, 0)
+                $hexSID = ($sidBytes | ForEach-Object { '\{0:X2}' -f $_ }) -join ''
+                $searcher.Filter = "(objectSid=$hexSID)"
+                $searcher.PropertiesToLoad.Add("distinguishedName") | Out-Null
+                $searcher.PropertiesToLoad.Add("sAMAccountName") | Out-Null
+                $searcher.PropertiesToLoad.Add("member") | Out-Null
+                $searcher.SearchScope = "Subtree"
+                $adminResult = $searcher.FindOne()
+
+                if ($adminResult) {
+                    $adminGroupDN = $adminResult.Properties["distinguishedname"][0]
+                    $localizedSAM = "$($adminResult.Properties['samaccountname'][0])"
+                    Write-Log ("  DN: " + $adminGroupDN) -Level INFO
+                    Write-Log ("  SAM: " + $localizedSAM) -Level INFO
+
+                    # Pruefen ob ETS schon Mitglied ist
+                    $alreadyMember = $false
+                    if ($adminResult.Properties["member"]) {
+                        foreach ($m in $adminResult.Properties["member"]) {
+                            if ($m -like "*Exchange Trusted Subsystem*") {
+                                $alreadyMember = $true
+                                Write-Log "ETS ist bereits Mitglied der Builtin-Admin-Gruppe!" -Level SUCCESS
+                                break
+                            }
+                        }
+                    }
+
+                    if (-not $alreadyMember) {
+                        # ETS-DN finden
+                        $etsSearch = New-Object System.DirectoryServices.DirectorySearcher
+                        $etsSearch.SearchRoot = [ADSI]("LDAP://" + $domainDN)
+                        $etsSearch.Filter = "(samAccountName=$etsSAM)"
+                        $etsSearch.PropertiesToLoad.Add("distinguishedName") | Out-Null
+                        $etsSearch.SearchScope = "Subtree"
+                        $etsResult = $etsSearch.FindOne()
+
+                        if (-not $etsResult) {
+                            Write-Log "FEHLER: 'Exchange Trusted Subsystem' nicht im AD gefunden!" -Level ERROR
+                            Write-Log "Wurde Exchange korrekt installiert?" -Level WARNING
+                            return
+                        }
+
+                        $etsDN = $etsResult.Properties["distinguishedname"][0]
+                        Write-Log ("  ETS DN: " + $etsDN) -Level INFO
+                        Write-Log "Fuege ETS zur Builtin-Admin-Gruppe hinzu..." -Level INFO
+
+                        # === Direkter LDAP-Add ===
+                        $success = $false
+                        try {
+                            $adminGroupObj = [ADSI]("LDAP://" + $adminGroupDN)
+                            $adminGroupObj.Add("LDAP://" + $etsDN)
+                            $adminGroupObj.SetInfo()
+                            Write-Log "ETS erfolgreich hinzugefuegt!" -Level SUCCESS
+                            $success = $true
+                        } catch {
+                            Write-Log ("LDAP Add-Methode fehlgeschlagen: " + $_.Exception.Message) -Level WARNING
+                        }
+
+                        # Fallback: AD-Modul mit lokalisiertem Namen
+                        if (-not $success -and $localizedSAM) {
+                            try {
+                                Write-Log ("Fallback: Add-ADGroupMember mit lokalem Namen '" + $localizedSAM + "'...") -Level INFO
+                                Import-Module ActiveDirectory -ErrorAction Stop
+                                Add-ADGroupMember -Identity $localizedSAM -Members $etsSAM -Server $witnessSrv -ErrorAction Stop
+                                Write-Log "AD-Modul-Methode erfolgreich!" -Level SUCCESS
+                                $success = $true
+                            } catch {
+                                Write-Log ("AD-Modul-Fallback fehlgeschlagen: " + $_.Exception.Message) -Level WARNING
+                            }
+                        }
+
+                        # Fallback: Identity per DN
+                        if (-not $success) {
+                            try {
+                                Write-Log "Fallback: Add-ADGroupMember per DN..." -Level INFO
+                                Import-Module ActiveDirectory -ErrorAction Stop
+                                Add-ADGroupMember -Identity $adminGroupDN -Members $etsDN -Server $witnessSrv -ErrorAction Stop
+                                Write-Log "DN-basierte Methode erfolgreich!" -Level SUCCESS
+                                $success = $true
+                            } catch {
+                                Write-Log ("DN-Methode fehlgeschlagen: " + $_.Exception.Message) -Level WARNING
+                            }
+                        }
+
+                        if ($success) {
+                            Write-Log "Verifiziere Mitgliedschaft (SID-Lookup)..." -Level INFO
+                            Start-Sleep -Seconds 5
+                            try {
+                                $verifySearch = New-Object System.DirectoryServices.DirectorySearcher
+                                $verifySearch.SearchRoot = [ADSI]("LDAP://CN=Builtin," + $domainDN)
+                                $verifySearch.Filter = "(objectSid=$hexSID)"
+                                $verifySearch.PropertiesToLoad.Add("member") | Out-Null
+                                $vr = $verifySearch.FindOne()
+                                $isMemberNow = $false
+                                if ($vr -and $vr.Properties["member"]) {
+                                    foreach ($m in $vr.Properties["member"]) {
+                                        if ($m -eq $etsDN) { $isMemberNow = $true; break }
+                                    }
+                                }
+                                if ($isMemberNow) {
+                                    Write-Log ">>> ETS ist jetzt Mitglied von Builtin-Admins <<<" -Level SUCCESS
+                                } else {
+                                    Write-Log "ETS noch nicht als Mitglied sichtbar - AD-Replikation kann 5-15 Min dauern" -Level WARNING
+                                }
+                            } catch {
+                                Write-Log ("Verifikation: " + $_.Exception.Message) -Level INFO
+                            }
+
+                            Write-Log "Warte 30s auf AD-Replikation..." -Level INFO
+                            for ($i = 30; $i -gt 0; $i--) {
+                                if ($i % 5 -eq 0) { Write-Log ("  ... " + $i + "s") -Level INFO }
+                                Start-Sleep -Seconds 1
+                                try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+                            }
+                        } else {
+                            Write-Log "==============================================" -Level ERROR
+                            Write-Log " ALLE METHODEN FEHLGESCHLAGEN!" -Level ERROR
+                            Write-Log "==============================================" -Level ERROR
+                            Write-Log " BITTE MANUELL auf dem DC ausfuehren:" -Level WARNING
+                            Write-Log "" -Level INFO
+                            Write-Log "   Add-ADGroupMember -Identity '$localizedSAM' -Members 'Exchange Trusted Subsystem'" -Level INFO
+                            Write-Log "" -Level INFO
+                            Write-Log " Oder ueber dsa.msc -> Builtin -> $localizedSAM -> Members -> Add" -Level INFO
+                            Write-Log "==============================================" -Level ERROR
+
+                            $manualMsg = "Konnte ETS nicht hinzufuegen.`r`n`r`n"
+                            $manualMsg += "Bitte MANUELL auf einem DC ausfuehren:`r`n`r`n"
+                            $manualMsg += "   Add-ADGroupMember -Identity '$localizedSAM'``r``n"
+                            $manualMsg += "      -Members 'Exchange Trusted Subsystem'`r`n`r`n"
+                            $manualMsg += "Danach 5 Min warten und DAG-Erstellung erneut starten."
+                            [System.Windows.Forms.MessageBox]::Show($manualMsg, "Manuelle Aktion", 'OK', 'Warning')
+                            return
+                        }
+                    }
+                } else {
+                    Write-Log "Builtin-Admin-Gruppe nicht im AD gefunden!" -Level ERROR
+                    return
+                }
             } catch {
-                Write-Log ("AD-Module method failed: " + $_) -Level WARNING
-                # Versuch 2: Remote-Befehl auf DC
+                Write-Log ("Kritischer SID-Lookup-Fehler: " + $_.Exception.Message) -Level ERROR
+                return
+            }
+
+            # === Witness-Verzeichnis vorab anlegen ===
+            Write-Log "Erstelle Witness-Verzeichnis auf DC..." -Level INFO
+            try {
+                Invoke-Command -ComputerName $witnessSrv -ScriptBlock {
+                    param($dir)
+                    if (-not (Test-Path $dir)) {
+                        New-Item -Path $dir -ItemType Directory -Force | Out-Null
+                    }
+                } -ArgumentList $witnessDir -ErrorAction Stop
+                Write-Log ("Verzeichnis erstellt: " + $witnessDir) -Level SUCCESS
+            } catch {
+                Write-Log ("Verzeichnis-Erstellung: " + $_.Exception.Message) -Level WARNING
+                Write-Log "Versuche UNC-Fallback..." -Level INFO
                 try {
-                    Invoke-Command -ComputerName $witnessSrv -ScriptBlock {
-                        net localgroup Administrators "$env:USERDOMAIN\Exchange Trusted Subsystem" /add
-                    } -ErrorAction Stop
-                    Write-Log "Added via remote net localgroup" -Level SUCCESS
+                    $uncPath = $witnessDir -replace '^([A-Z]):',('\\' + $witnessSrv + '\$1$')
+                    if (-not (Test-Path $uncPath)) {
+                        New-Item -Path $uncPath -ItemType Directory -Force | Out-Null
+                        Write-Log ("UNC-Erstellung erfolgreich: " + $uncPath) -Level SUCCESS
+                    }
                 } catch {
-                    Write-Log ("All methods failed - PLEASE ADD MANUALLY: " + $_) -Level ERROR
-                    Write-Log "Run on DC: Add-ADGroupMember -Identity 'Administrators' -Members 'Exchange Trusted Subsystem'" -Level WARNING
+                    Write-Log "Bitte Witness-Verzeichnis manuell erstellen!" -Level WARNING
                 }
             }
-            Start-Sleep -Seconds 5
         }
 
         # === Witness-Verzeichnis vorab anlegen ===
