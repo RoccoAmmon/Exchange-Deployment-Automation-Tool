@@ -1915,19 +1915,130 @@ $GrpDAG2.Controls.Add($Global:TxtMembers)
 
 $BtnCreateDAGNow = New-Button (Get-T "DAG_Create") 10 465 1080 40 $Global:ColorAccent
 $BtnCreateDAGNow.Add_Click({
-    if (-not (Import-ExchangeManagementShell)) { return }
-    $name = $Global:TxtDAGName.Text.Trim()
-    if (-not $name) { return }
-    if (-not (Get-DatabaseAvailabilityGroup -Identity $name -ErrorAction SilentlyContinue)) {
-        if ($Global:ChkIPlessDAG.Checked) {
-            New-DatabaseAvailabilityGroup -Name $name -WitnessServer $Global:TxtWitness.Text -WitnessDirectory $Global:TxtWitnessDir.Text -DatabaseAvailabilityGroupIpAddresses ([System.Net.IPAddress]::None) | Out-Null
-        } else {
-            $ips = $Global:TxtDAGIP.Text.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { [System.Net.IPAddress]::Parse($_) }
-            New-DatabaseAvailabilityGroup -Name $name -WitnessServer $Global:TxtWitness.Text -WitnessDirectory $Global:TxtWitnessDir.Text -DatabaseAvailabilityGroupIpAddresses $ips | Out-Null
+    try {
+        if (-not (Import-ExchangeManagementShell)) { return }
+        $name = $Global:TxtDAGName.Text.Trim()
+        $witnessSrv = $Global:TxtWitness.Text.Trim()
+        $witnessDir = $Global:TxtWitnessDir.Text.Trim()
+        if (-not $name -or -not $witnessSrv) {
+            [System.Windows.Forms.MessageBox]::Show("DAG name or witness server missing!",(Get-T "Error"),'OK','Warning')
+            return
         }
+
+        # === PRE-CHECK: Ist der Witness-Server ein Domain Controller? ===
+        $isDC = $false
+        try {
+            $dcCheck = Get-ADDomainController -Identity $witnessSrv -ErrorAction SilentlyContinue
+            if ($dcCheck) { $isDC = $true }
+        } catch {
+            # Fallback ohne ADModul
+            try {
+                $forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
+                foreach ($d in $forest.Domains) {
+                    foreach ($dc in $d.DomainControllers) {
+                        if ($dc.Name -eq $witnessSrv -or $dc.Name -like "$witnessSrv.*") { $isDC = $true; break }
+                    }
+                    if ($isDC) { break }
+                }
+            } catch {}
+        }
+
+        if ($isDC) {
+            $r = [System.Windows.Forms.MessageBox]::Show(
+                "ACHTUNG: '$witnessSrv' ist ein Domain Controller!`r`n`r`n" +
+                "Microsoft empfiehlt KEINEN DC als Witness.`r`n`r`n" +
+                "Wenn Sie trotzdem fortfahren:`r`n" +
+                "  - 'Exchange Trusted Subsystem' wird zu Builtin\Administrators`r`n" +
+                "    der Domain hinzugefuegt (= Domain-Admin-Rechte!)`r`n" +
+                "  - Witness-Verzeichnis wird auf dem DC angelegt`r`n`r`n" +
+                "Fortfahren?",
+                "DC als Witness", 'YesNo', 'Warning')
+            if ($r -ne "Yes") { return }
+
+            Write-Log "Adding 'Exchange Trusted Subsystem' to Builtin\Administrators..." -Level WARNING
+            try {
+                # Versuch 1: AD-Modul
+                Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+                Add-ADGroupMember -Identity "Administrators" -Members "Exchange Trusted Subsystem" -ErrorAction Stop
+                Write-Log "Added via AD-Module" -Level SUCCESS
+            } catch {
+                Write-Log ("AD-Module method failed: " + $_) -Level WARNING
+                # Versuch 2: Remote-Befehl auf DC
+                try {
+                    Invoke-Command -ComputerName $witnessSrv -ScriptBlock {
+                        net localgroup Administrators "$env:USERDOMAIN\Exchange Trusted Subsystem" /add
+                    } -ErrorAction Stop
+                    Write-Log "Added via remote net localgroup" -Level SUCCESS
+                } catch {
+                    Write-Log ("All methods failed - PLEASE ADD MANUALLY: " + $_) -Level ERROR
+                    Write-Log "Run on DC: Add-ADGroupMember -Identity 'Administrators' -Members 'Exchange Trusted Subsystem'" -Level WARNING
+                }
+            }
+            Start-Sleep -Seconds 5
+        }
+
+        # === Witness-Verzeichnis vorab anlegen ===
+        Write-Log "Pre-creating witness directory on $witnessSrv..." -Level INFO
+        try {
+            $remoteDir = $witnessDir -replace '^([A-Z]):','\\' + $witnessSrv + '\$1$'
+            if (-not (Test-Path $remoteDir -ErrorAction SilentlyContinue)) {
+                Invoke-Command -ComputerName $witnessSrv -ScriptBlock {
+                    param($dir)
+                    if (-not (Test-Path $dir)) { New-Item -Path $dir -ItemType Directory -Force | Out-Null }
+                } -ArgumentList $witnessDir -ErrorAction SilentlyContinue
+                Write-Log ("Witness directory created: " + $witnessDir) -Level SUCCESS
+            } else {
+                Write-Log "Witness directory already exists" -Level INFO
+            }
+        } catch {
+            Write-Log ("Witness directory pre-creation skipped: " + $_) -Level WARNING
+        }
+
+        # === DAG erstellen ===
+        if (-not (Get-DatabaseAvailabilityGroup -Identity $name -ErrorAction SilentlyContinue)) {
+            Write-Log ("Creating DAG '" + $name + "'...") -Level INFO
+            if ($Global:ChkIPlessDAG.Checked) {
+                New-DatabaseAvailabilityGroup -Name $name `
+                    -WitnessServer $witnessSrv -WitnessDirectory $witnessDir `
+                    -DatabaseAvailabilityGroupIpAddresses ([System.Net.IPAddress]::None) -ErrorAction Stop | Out-Null
+                Write-Log ("IP-less DAG '$name' created") -Level SUCCESS
+            } else {
+                $ips = $Global:TxtDAGIP.Text.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { [System.Net.IPAddress]::Parse($_) }
+                New-DatabaseAvailabilityGroup -Name $name `
+                    -WitnessServer $witnessSrv -WitnessDirectory $witnessDir `
+                    -DatabaseAvailabilityGroupIpAddresses $ips -ErrorAction Stop | Out-Null
+                Write-Log ("DAG '$name' created with IPs: " + ($ips -join ',')) -Level SUCCESS
+            }
+        } else {
+            Write-Log ("DAG '$name' already exists") -Level WARNING
+        }
+
+        # === Mitglieder hinzufuegen ===
+        $members = $Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        foreach ($m in $members) {
+            try {
+                Add-DatabaseAvailabilityGroupServer -Identity $name -MailboxServer $m -ErrorAction Stop
+                Write-Log ("Member '$m' added") -Level SUCCESS
+            } catch { Write-Log ("Error adding '$m': " + $_) -Level ERROR }
+        }
+
+        # === Status anzeigen ===
+        Start-Sleep -Seconds 3
+        $dagStatus = Get-DatabaseAvailabilityGroup -Identity $name -Status -ErrorAction SilentlyContinue
+        if ($dagStatus) {
+            Write-Log "------- DAG Status -------" -Level INFO
+            Write-Log ("  Name:               " + $dagStatus.Name) -Level INFO
+            Write-Log ("  Witness Server:     " + $dagStatus.WitnessServer) -Level INFO
+            Write-Log ("  Witness Directory:  " + $dagStatus.WitnessDirectory) -Level INFO
+            Write-Log ("  Witness Share:      " + $dagStatus.WitnessShareInUse) -Level INFO
+            Write-Log ("  Members:            " + ($dagStatus.Servers -join ',')) -Level INFO
+        }
+
+        Write-Log "DAG configuration complete" -Level SUCCESS
+        Write-Log "TIP: Restart MSExchangeIS service if directed by Exchange" -Level INFO
     }
-    foreach ($m in ($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
-        try { Add-DatabaseAvailabilityGroupServer -Identity $name -MailboxServer $m -ErrorAction Stop } catch {}
+    catch {
+        Write-Log ("DAG error: " + $_) -Level ERROR
     }
 })
 $TabDAG.Controls.Add($BtnCreateDAGNow)
