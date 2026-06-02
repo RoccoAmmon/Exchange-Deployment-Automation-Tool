@@ -1,4 +1,115 @@
-﻿<#
+﻿# ============================================================
+# AUTO-ELEVATION - Script automatisch als Admin starten
+# ============================================================
+param([switch]$Elevated)
+
+function Test-IsAdmin {
+    try {
+        $currentUser = New-Object Security.Principal.WindowsPrincipal(
+            [Security.Principal.WindowsIdentity]::GetCurrent())
+        return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { return $false }
+}
+
+if (-not (Test-IsAdmin)) {
+    if ($Elevated) {
+        # Bereits versucht zu elevieren - hat nicht geklappt
+        Write-Host "FEHLER: Skript konnte nicht mit Admin-Rechten gestartet werden!" -ForegroundColor Red
+        Write-Host "Bitte manuell als Administrator ausfuehren." -ForegroundColor Yellow
+        Read-Host "Druecken Sie ENTER zum Beenden"
+        exit 1
+    }
+
+    # ISE-Erkennung - hier funktioniert RunAs nicht zuverlaessig
+    if ($psISE -or $Host.Name -match 'ISE') {
+        Write-Host "==================================================" -ForegroundColor Yellow
+        Write-Host " WARNUNG: PowerShell ISE wird NICHT empfohlen!" -ForegroundColor Yellow
+        Write-Host "==================================================" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Das Script crasht in der ISE bei Setup-Prozessen." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Bitte so starten:" -ForegroundColor Cyan
+        Write-Host "  1. Rechtsklick auf die .ps1-Datei" -ForegroundColor Cyan
+        Write-Host "  2. 'Mit PowerShell ausfuehren' waehlen" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "ODER: Normale PowerShell als Administrator starten und:" -ForegroundColor Cyan
+        Write-Host "  & '$($MyInvocation.MyCommand.Path)'" -ForegroundColor Cyan
+        Write-Host ""
+        Read-Host "Druecken Sie ENTER zum Beenden"
+        exit 1
+    }
+
+    # Skript-Pfad ermitteln
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if (-not $scriptPath) { $scriptPath = $PSCommandPath }
+
+    if (-not $scriptPath) {
+        Write-Host "FEHLER: Skript-Pfad nicht ermittelbar!" -ForegroundColor Red
+        Write-Host "Bitte das Script ueber Rechtsklick -> 'Mit PowerShell ausfuehren' starten." -ForegroundColor Yellow
+        Read-Host "ENTER zum Beenden"
+        exit 1
+    }
+
+    Write-Host "==================================================" -ForegroundColor Cyan
+    Write-Host " Exchange SE - Konfigurations-Center" -ForegroundColor Cyan
+    Write-Host "==================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Skript benoetigt Administrator-Rechte!" -ForegroundColor Yellow
+    Write-Host "Starte UAC-Eingabeaufforderung..." -ForegroundColor Yellow
+    Write-Host ""
+
+    try {
+        # Aktuelles Working-Directory bewahren
+        $workDir = (Get-Location).Path
+
+        # ArgumentList zusammenbauen - mit Working-Dir und Elevated-Flag
+        $argList = @(
+            '-NoProfile',
+            '-ExecutionPolicy','Bypass',
+            '-File',('"' + $scriptPath + '"'),
+            '-Elevated'
+        )
+
+        Start-Process -FilePath "powershell.exe" `
+                      -Verb RunAs `
+                      -ArgumentList $argList `
+                      -WorkingDirectory $workDir `
+                      -ErrorAction Stop
+
+        Write-Host "Elevierte PowerShell wurde gestartet - dieses Fenster schliesst sich gleich." -ForegroundColor Green
+        Start-Sleep -Seconds 2
+        exit 0
+    }
+    catch {
+        Write-Host ""
+        Write-Host "FEHLER beim Eskalieren auf Admin-Rechte:" -ForegroundColor Red
+        Write-Host $_ -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Moegliche Ursachen:" -ForegroundColor Yellow
+        Write-Host "  - UAC-Dialog wurde abgelehnt" -ForegroundColor Yellow
+        Write-Host "  - Benutzer ist kein lokaler Administrator" -ForegroundColor Yellow
+        Write-Host "  - Gruppenrichtlinie blockiert die Eskalation" -ForegroundColor Yellow
+        Write-Host ""
+        Read-Host "ENTER zum Beenden"
+        exit 1
+    }
+}
+
+# Ab hier laeuft das Script GARANTIERT mit Admin-Rechten
+Write-Host "==================================================" -ForegroundColor Green
+Write-Host " Skript laeuft mit Administrator-Rechten" -ForegroundColor Green
+Write-Host " User: $env:USERDOMAIN\$env:USERNAME" -ForegroundColor Green
+Write-Host "==================================================" -ForegroundColor Green
+Start-Sleep -Milliseconds 800
+# ============================================================
+
+<#
+.SYNOPSIS
+    Exchange 2019 SE - All-in-One Konfigurations-Center v3.6
+... (Rest des Scripts)
+#>
+
+<#
 .SYNOPSIS
     Exchange 2019 SE - All-in-One Konfigurations-Center v3.5
 
@@ -22,6 +133,26 @@
 #>
 
 #region ============================ GLOBALE VARIABLEN ============================
+
+# WICHTIG: Assemblies MUESSEN vor den Color-Variablen geladen werden!
+# Bei -NoProfile-Start (durch Auto-Elevation) sind sie sonst nicht verfuegbar.
+try {
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+}
+catch {
+    Write-Host "FEHLER: GUI-Assemblies konnten nicht geladen werden!" -ForegroundColor Red
+    Write-Host "Detail: $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Moegliche Ursachen:" -ForegroundColor Yellow
+    Write-Host "  - .NET Framework nicht vollstaendig installiert" -ForegroundColor Yellow
+    Write-Host "  - PowerShell Core (PS7) ohne Forms-Modul - bitte Windows PowerShell 5.1 verwenden!" -ForegroundColor Yellow
+    Read-Host "ENTER zum Beenden"
+    exit 1
+}
+
+# --- Logging & Config ---
 $Global:LogPath          = "C:\ScriptLog"
 $Global:LogFile          = Join-Path $Global:LogPath "Exchange2019-SE_GUI_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $Global:ConfigPath       = Join-Path $Global:LogPath "Config"
@@ -66,6 +197,26 @@ try {
     foreach ($p in @($Global:LogPath, $Global:ConfigPath, $Global:DefaultTempPath)) {
         if (-not (Test-Path $p)) { New-Item -Path $p -ItemType Directory -Force | Out-Null }
     }
+}
+catch {
+    Write-Host ("Fehler beim Initialisieren: " + $_) -ForegroundColor Red
+    exit 1
+}
+
+# ISE-Warnung (Forms ist hier schon geladen)
+if ($psISE -or $Host.Name -match 'ISE') {
+    [System.Windows.Forms.MessageBox]::Show(
+        "WARNUNG: Sie fuehren das Skript in der PowerShell ISE aus!`r`n`r`n" +
+        "Die ISE crasht bei Setup-Sub-Prozessen.`r`n`r`n" +
+        "BITTE so ausfuehren:`r`n  Rechtsklick auf .ps1 -> 'Mit PowerShell ausfuehren'",
+        "ISE-Warnung",'OK','Warning')
+}
+#endregion
+
+try {
+    foreach ($p in @($Global:LogPath, $Global:ConfigPath, $Global:DefaultTempPath)) {
+        if (-not (Test-Path $p)) { New-Item -Path $p -ItemType Directory -Force | Out-Null }
+    }
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -82,6 +233,97 @@ if ($psISE -or $Host.Name -match 'ISE') {
         "Die ISE crasht bei Setup-Sub-Prozessen.`r`n`r`n" +
         "BITTE so ausfuehren:`r`n  Rechtsklick auf .ps1 -> 'Mit PowerShell ausfuehren'",
         "ISE-Warnung",'OK','Warning')
+}
+#endregion
+#region ============================ SPLASH-SCREEN ============================
+function Show-SplashScreen {
+    <#
+    .SYNOPSIS
+        Zeigt einen "Bitte warten"-Splash-Screen mit Status-Text und Fortschrittsbalken.
+    #>
+    $Global:SplashForm = New-Object System.Windows.Forms.Form
+    $Global:SplashForm.Text            = "Bitte warten..."
+    $Global:SplashForm.Size            = New-Object System.Drawing.Size(500, 220)
+    $Global:SplashForm.StartPosition   = "CenterScreen"
+    $Global:SplashForm.FormBorderStyle = "FixedDialog"
+    $Global:SplashForm.ControlBox      = $false
+    $Global:SplashForm.TopMost         = $true
+    $Global:SplashForm.BackColor       = $Global:ColorPanel
+    $Global:SplashForm.ShowInTaskbar   = $false
+
+    # Header-Panel (blau)
+    $hdr = New-Object System.Windows.Forms.Panel
+    $hdr.Size      = New-Object System.Drawing.Size(500, 50)
+    $hdr.Location  = New-Object System.Drawing.Point(0, 0)
+    $hdr.BackColor = $Global:ColorAccent
+    $Global:SplashForm.Controls.Add($hdr)
+
+    $lblHdr = New-Object System.Windows.Forms.Label
+    $lblHdr.Text      = "  Exchange 2019 SE - Konfigurations-Center"
+    $lblHdr.Font      = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Bold)
+    $lblHdr.ForeColor = [System.Drawing.Color]::White
+    $lblHdr.Location  = New-Object System.Drawing.Point(15, 12)
+    $lblHdr.Size      = New-Object System.Drawing.Size(475, 28)
+    $hdr.Controls.Add($lblHdr)
+
+    # "Bitte warten"-Text
+    $lblWait = New-Object System.Windows.Forms.Label
+    $lblWait.Text      = "Bitte warten - System wird ueberprueft..."
+    $lblWait.Font      = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $lblWait.ForeColor = $Global:ColorText
+    $lblWait.Location  = New-Object System.Drawing.Point(20, 70)
+    $lblWait.Size      = New-Object System.Drawing.Size(460, 25)
+    $Global:SplashForm.Controls.Add($lblWait)
+
+    # Status-Text (wird live aktualisiert)
+    $Global:SplashStatus = New-Object System.Windows.Forms.Label
+    $Global:SplashStatus.Text      = "Initialisierung..."
+    $Global:SplashStatus.Font      = New-Object System.Drawing.Font("Segoe UI", 9)
+    $Global:SplashStatus.ForeColor = $Global:ColorTextDim
+    $Global:SplashStatus.Location  = New-Object System.Drawing.Point(20, 100)
+    $Global:SplashStatus.Size      = New-Object System.Drawing.Size(460, 22)
+    $Global:SplashForm.Controls.Add($Global:SplashStatus)
+
+    # Marquee-Progressbar (Endlos-Animation)
+    $Global:SplashProgress = New-Object System.Windows.Forms.ProgressBar
+    $Global:SplashProgress.Location  = New-Object System.Drawing.Point(20, 130)
+    $Global:SplashProgress.Size      = New-Object System.Drawing.Size(460, 20)
+    $Global:SplashProgress.Style     = "Marquee"
+    $Global:SplashProgress.MarqueeAnimationSpeed = 30
+    $Global:SplashForm.Controls.Add($Global:SplashProgress)
+
+    # Footer
+    $lblFoot = New-Object System.Windows.Forms.Label
+    $lblFoot.Text      = "Diese Pruefung dauert ca. 10-30 Sekunden"
+    $lblFoot.Font      = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Italic)
+    $lblFoot.ForeColor = $Global:ColorTextDim
+    $lblFoot.Location  = New-Object System.Drawing.Point(20, 160)
+    $lblFoot.Size      = New-Object System.Drawing.Size(460, 18)
+    $Global:SplashForm.Controls.Add($lblFoot)
+
+    # Form async anzeigen (nicht blockierend!)
+    $Global:SplashForm.Show()
+    $Global:SplashForm.Refresh()
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Update-SplashStatus {
+    param([string]$Text)
+    if ($Global:SplashStatus) {
+        $Global:SplashStatus.Text = $Text
+        $Global:SplashStatus.Refresh()
+        [System.Windows.Forms.Application]::DoEvents()
+    }
+}
+
+function Close-SplashScreen {
+    if ($Global:SplashForm) {
+        try {
+            $Global:SplashForm.Close()
+            $Global:SplashForm.Dispose()
+        } catch {}
+        $Global:SplashForm = $null
+    }
 }
 #endregion
 
@@ -186,49 +428,76 @@ function Find-MountedExchangeISO {
 #region ============================ TLS HARDENING ============================
 function Set-TLSHardening {
     try {
-        Write-Log "Starte TLS-Hardening..." -Level INFO
+        Write-Log "Starte TLS-Hardening (Microsoft Best Practice)..." -Level INFO
+
         $protocols = @{
-            "SSL 2.0"=$false; "SSL 3.0"=$false; "TLS 1.0"=$false; "TLS 1.1"=$false
-            "TLS 1.2"=$true;  "TLS 1.3"=$true
+            "SSL 2.0" = $false
+            "SSL 3.0" = $false
+            "TLS 1.0" = $false
+            "TLS 1.1" = $false
+            "TLS 1.2" = $true
+            "TLS 1.3" = $true
         }
         $base = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+
         foreach ($proto in $protocols.Keys) {
             $enabled = $protocols[$proto]
             foreach ($side in @("Server","Client")) {
                 $sidePath = Join-Path (Join-Path $base $proto) $side
-                if (-not (Test-Path $sidePath)) { New-Item -Path $sidePath -Force | Out-Null }
+                if (-not (Test-Path $sidePath)) {
+                    New-Item -Path $sidePath -Force | Out-Null
+                }
                 if ($enabled) {
                     New-ItemProperty -Path $sidePath -Name "Enabled" -Value 0xFFFFFFFF -PropertyType DWord -Force | Out-Null
                     New-ItemProperty -Path $sidePath -Name "DisabledByDefault" -Value 0 -PropertyType DWord -Force | Out-Null
+                    $statusText = "AKTIV"
                 } else {
                     New-ItemProperty -Path $sidePath -Name "Enabled" -Value 0 -PropertyType DWord -Force | Out-Null
                     New-ItemProperty -Path $sidePath -Name "DisabledByDefault" -Value 1 -PropertyType DWord -Force | Out-Null
+                    $statusText = "DEAKTIV"
                 }
-                Write-Log ("  $proto $side : " + (if ($enabled){"AKTIV"}else{"DEAKTIV"})) -Level INFO
+                # FIX: $statusText als Variable VOR Write-Log setzen statt inline if
+                Write-Log ("  $proto $side : $statusText") -Level INFO
             }
         }
+
+        Write-Log ".NET Framework: SystemDefaultTlsVersions wird gesetzt..." -Level INFO
         $netPaths = @(
             "HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319",
-            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v4.0.30319"
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v4.0.30319",
+            "HKLM:\SOFTWARE\Microsoft\.NETFramework\v2.0.50727",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v2.0.50727"
         )
         foreach ($np in $netPaths) {
             if (Test-Path $np) {
                 New-ItemProperty -Path $np -Name "SystemDefaultTlsVersions" -Value 1 -PropertyType DWord -Force | Out-Null
-                New-ItemProperty -Path $np -Name "SchUseStrongCrypto" -Value 1 -PropertyType DWord -Force | Out-Null
+                New-ItemProperty -Path $np -Name "SchUseStrongCrypto"       -Value 1 -PropertyType DWord -Force | Out-Null
+                Write-Log ("  .NET-Pfad konfiguriert: " + $np) -Level INFO
             }
         }
+        Write-Log ".NET Framework auf TLS 1.2/1.3 konfiguriert" -Level SUCCESS
+
+        Write-Log "Deaktiviere schwache Cipher Suites..." -Level INFO
         $weakCiphers = @("RC4 40/128","RC4 56/128","RC4 64/128","RC4 128/128","DES 56/56","NULL","Triple DES 168")
         $cipherBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
         foreach ($c in $weakCiphers) {
             $cp = Join-Path $cipherBase $c
-            if (-not (Test-Path $cp)) { New-Item -Path $cp -Force | Out-Null }
+            if (-not (Test-Path $cp)) {
+                New-Item -Path $cp -Force | Out-Null
+            }
             New-ItemProperty -Path $cp -Name "Enabled" -Value 0 -PropertyType DWord -Force | Out-Null
+            Write-Log ("  Cipher deaktiviert: " + $c) -Level INFO
         }
+
         Write-Log "TLS-Hardening abgeschlossen - NEUSTART erforderlich!" -Level SUCCESS
         return $true
     }
-    catch { Write-Log ("Fehler: " + $_) -Level ERROR; return $false }
+    catch {
+        Write-Log ("Fehler beim TLS-Hardening: " + $_) -Level ERROR
+        return $false
+    }
 }
+
 #endregion
 
 #region ============================ PREREQ-FUNKTIONEN ============================
@@ -399,19 +668,134 @@ function Install-PrerequisiteSoftware {
         }
     }
 
-    if ($InstallFeatures) {
+     if ($InstallFeatures) {
         Write-Log "[6/8] Pruefe Windows-Features..." -Level INFO
         $status = Get-PrerequisiteStatus
-        if ($status.FeaturesOK) { Write-Log "  Alle Windows-Features bereits installiert" -Level SUCCESS }
+        if ($status.FeaturesOK) {
+            Write-Log "  Alle Windows-Features bereits installiert" -Level SUCCESS
+        }
         else {
-            Write-Log ("  " + $status.MissingFeatures.Count + " Feature(s) fehlen - werden installiert...") -Level INFO
+            $missingArr = @($status.MissingFeatures)
+            Write-Log ("  " + $missingArr.Count + " Feature(s) fehlen - Installation startet") -Level INFO
+            Write-Log "  WICHTIG: Output wird unterdrueckt - bitte 5-15 Min warten..." -Level INFO
+            Write-Log ("  Features: " + ($missingArr -join ", ")) -Level INFO
+
             try {
-                $result = Install-WindowsFeature -Name $status.MissingFeatures -ErrorAction Stop
-                Write-Log "  Windows-Features installiert" -Level SUCCESS
-                if ($result.RestartNeeded -eq "Yes") {
-                    Write-Log "  >>> NEUSTART ERFORDERLICH! <<<" -Level WARNING
+                # === BACKGROUND-JOB-METHODE ===
+                # Alle Features ALS BLOCK in einem Job - genau wie klassische Pre-Scripts
+                # Job laeuft in eigener Runspace -> KEINE Progress-Spam in unserer Konsole
+                $job = Start-Job -Name "ExchangeFeatures" -ScriptBlock {
+                    param($features)
+                    # Im Job: alle Streams unterdruecken
+                    $ProgressPreference     = 'SilentlyContinue'
+                    $WarningPreference      = 'SilentlyContinue'
+                    $InformationPreference  = 'SilentlyContinue'
+                    $VerbosePreference      = 'SilentlyContinue'
+                    $DebugPreference        = 'SilentlyContinue'
+
+                    # Alles in einem Aufruf - schnell und atomar
+                    Import-Module ServerManager -ErrorAction SilentlyContinue
+                    $result = Install-WindowsFeature -Name $features `
+                                -ErrorAction Continue `
+                                -WarningAction SilentlyContinue `
+                                -InformationAction SilentlyContinue 6>$null 4>$null 3>$null 5>$null
+
+                    return @{
+                        Success       = $result.Success
+                        ExitCode      = $result.ExitCode
+                        RestartNeeded = $result.RestartNeeded
+                        FeatureResult = $result.FeatureResult | ForEach-Object {
+                            @{ Name=$_.Name; Success=$_.Success; SkipReason=$_.SkipReason }
+                        }
+                    }
+                } -ArgumentList (,$missingArr)
+
+                Write-Log ("  Job '" + $job.Name + "' (ID: " + $job.Id + ") gestartet") -Level INFO
+                Write-Log "  ----- Live-Heartbeat (alle 30 Sek) -----" -Level INFO
+
+                $startTime    = Get-Date
+                $lastHeartBeat = Get-Date
+                $maxRuntimeMin = 30
+
+                # Polling-Loop - GUI bleibt bedienbar
+                while ($job.State -eq 'Running') {
+                    try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+                    Start-Sleep -Milliseconds 1000
+
+                    $elapsed = (Get-Date) - $startTime
+
+                    if (((Get-Date) - $lastHeartBeat).TotalSeconds -ge 30) {
+                        $elapsedStr = $elapsed.ToString("hh\:mm\:ss")
+                        Write-Log ("    ... Features installieren laeuft | Laufzeit: " + $elapsedStr) -Level INFO
+                        $lastHeartBeat = Get-Date
+                    }
+
+                    if ($elapsed.TotalMinutes -gt $maxRuntimeMin) {
+                        Write-Log ("  TIMEOUT (" + $maxRuntimeMin + " Min) - Job wird abgebrochen") -Level ERROR
+                        Stop-Job -Job $job -ErrorAction SilentlyContinue
+                        break
+                    }
                 }
-            } catch { Write-Log ("  Fehler: " + $_) -Level ERROR }
+
+                $totalTime = ((Get-Date) - $startTime).ToString("hh\:mm\:ss")
+                Write-Log ("  ----- Job beendet nach " + $totalTime + " -----") -Level INFO
+                Write-Log ("  Job-Status: " + $job.State) -Level INFO
+
+                if ($job.State -eq 'Completed') {
+                    try {
+                        $jobResult = Receive-Job -Job $job -ErrorAction Stop
+
+                        if ($jobResult.Success) {
+                            Write-Log "  Windows-Features ERFOLGREICH installiert" -Level SUCCESS
+                        } else {
+                            Write-Log "  Job beendet mit Warnungen - Detailpruefung..." -Level WARNING
+                        }
+
+                        # Welche Features waren erfolgreich?
+                        if ($jobResult.FeatureResult) {
+                            $okCount  = ($jobResult.FeatureResult | Where-Object { $_.Success }).Count
+                            $failCount = ($jobResult.FeatureResult | Where-Object { -not $_.Success }).Count
+                            Write-Log ("  Detail: " + $okCount + " OK, " + $failCount + " Fehler") -Level INFO
+
+                            # Bei Fehlern: einzelne nennen
+                            $failed = $jobResult.FeatureResult | Where-Object { -not $_.Success }
+                            foreach ($f in $failed) {
+                                Write-Log ("    Fehler: " + $f.Name + " (" + $f.SkipReason + ")") -Level WARNING
+                            }
+                        }
+
+                        if ($jobResult.RestartNeeded -eq "Yes" -or $jobResult.RestartNeeded -eq $true) {
+                            Write-Log "  >>> NEUSTART ERFORDERLICH! <<<" -Level WARNING
+                        }
+                    }
+                    catch {
+                        Write-Log ("  Fehler beim Lesen des Job-Ergebnisses: " + $_) -Level WARNING
+                    }
+                }
+                elseif ($job.State -eq 'Failed') {
+                    $err = ($job.ChildJobs[0].JobStateInfo.Reason.Message)
+                    Write-Log ("  Job FEHLGESCHLAGEN: " + $err) -Level ERROR
+                }
+                else {
+                    Write-Log ("  Job-Status unerwartet: " + $job.State) -Level WARNING
+                }
+
+                # Job aufraeumen
+                Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+
+                # Final-Check
+                $statusAfter = Get-PrerequisiteStatus
+                $stillMissing = $statusAfter.MissingFeatures.Count
+                if ($stillMissing -eq 0) {
+                    Write-Log "  Alle Features verifiziert: OK" -Level SUCCESS
+                } else {
+                    Write-Log ("  Achtung: " + $stillMissing + " Features sind noch nicht installiert") -Level WARNING
+                    Write-Log "  Nach Neustart erneut versuchen" -Level INFO
+                }
+            }
+            catch {
+                Write-Log ("  Kritischer Fehler: " + $_) -Level ERROR
+            }
         }
     }
 
@@ -480,7 +864,7 @@ function Test-ExchangePrerequisites {
         if ($ram -lt 8) { $errors += "RAM < 8 GB ($ram GB)" }
         $sysDrive = Get-PSDrive -Name ($env:SystemDrive.Replace(":",""))
         $freeGB = [math]::Round($sysDrive.Free / 1GB, 2)
-        if ($freeGB -lt 30) { $errors += "Freier Speicher < 30 GB" }
+        if ($freeGB -lt 10) { $errors += "Freier Speicher < 10 GB" }
         if ($ExchangeISOPath -and -not (Test-Path $ExchangeISOPath)) {
             $errors += "ISO nicht gefunden: $ExchangeISOPath"
         }
@@ -653,21 +1037,103 @@ function Invoke-ResponsiveProcess {
 function Install-ExchangeServer {
     param(
         [Parameter(Mandatory)][string]$SetupPath,
-        [Parameter(Mandatory)][string]$OrgName
+        [Parameter(Mandatory)][string]$OrgName,
+        [string]$Roles = "Mailbox",
+        [bool]$IncludeManagementTools = $true,
+        [bool]$AcceptDiagnosticData = $false,
+        [string]$TargetDir = ""
     )
     try {
-        Write-Log "Starte Exchange Setup (kann Stunden dauern)..." -Level INFO
-        $arguments = @(
-            "/mode:Install","/role:Mailbox",
-            "/OrganizationName:$OrgName",
-            "/IAcceptExchangeServerLicenseTerms_DiagnosticDataOFF",
-            "/InstallWindowsComponents"
-        )
+        Write-Log "Pruefe ob Exchange-Organisation bereits im AD existiert..." -Level INFO
+
+        # Existierende Organisation aus AD lesen
+        $existingOrg = $null
+        try {
+            $rootDSE = [ADSI]"LDAP://RootDSE"
+            $configNC = $rootDSE.Properties["configurationNamingContext"][0]
+            $searcher = New-Object System.DirectoryServices.DirectorySearcher
+            $searcher.SearchRoot = [ADSI]("LDAP://CN=Microsoft Exchange,CN=Services," + $configNC)
+            $searcher.Filter = "(objectClass=msExchOrganizationContainer)"
+            $searcher.PropertiesToLoad.Add("cn") | Out-Null
+            $searcher.SearchScope = "OneLevel"
+            $result = $searcher.FindOne()
+            if ($result -and $result.Properties["cn"].Count -gt 0) {
+                $existingOrg = "$($result.Properties['cn'][0])"
+                Write-Log ("  Existierende Organisation im AD: '" + $existingOrg + "'") -Level INFO
+            }
+        } catch {
+            Write-Log "  Keine existierende Organisation im AD (frische Installation)" -Level INFO
+        }
+
+        # === Rollen-Zusammenstellung ===
+        $rolesList = @()
+        foreach ($r in ($Roles -split ',')) {
+            $r = $r.Trim()
+            if ($r) { $rolesList += $r }
+        }
+        if ($IncludeManagementTools -and ($rolesList -notcontains "ManagementTools")) {
+            $rolesList += "ManagementTools"
+        }
+        if ($rolesList.Count -eq 0) {
+            Write-Log "FEHLER: Keine Rolle zur Installation ausgewaehlt!" -Level ERROR
+            return $false
+        }
+        $rolesStr = $rolesList -join ','
+
+        Write-Log ("Rollen zur Installation: " + $rolesStr) -Level INFO
+
+        # === Argumente bauen ===
+        # WICHTIG: /Roles statt /role - das war der Bug!
+        $arguments = @()
+        $arguments += "/Mode:Install"
+        $arguments += "/Roles:$rolesStr"
+        $arguments += "/InstallWindowsComponents"
+
+        # Lizenz-Akzeptanz
+        if ($AcceptDiagnosticData) {
+            $arguments += "/IAcceptExchangeServerLicenseTerms_DiagnosticDataON"
+        } else {
+            $arguments += "/IAcceptExchangeServerLicenseTerms_DiagnosticDataOFF"
+        }
+
+        # Org-Name nur bei Erstinstallation
+        if (-not $existingOrg) {
+            if (-not $OrgName) {
+                Write-Log "  FEHLER: Bei Erstinstallation muss Organisationsname angegeben werden!" -Level ERROR
+                return $false
+            }
+            $arguments += "/OrganizationName:$OrgName"
+            Write-Log ("  Erstinstallation - Organisation '" + $OrgName + "' wird erstellt") -Level INFO
+        }
+        else {
+            if ($OrgName -and $OrgName -ne $existingOrg) {
+                Write-Log ("  HINWEIS: Eingegebener Name '" + $OrgName + "' wird ignoriert - AD hat '" + $existingOrg + "'") -Level WARNING
+            } else {
+                Write-Log ("  Setup verwendet existierende Organisation '" + $existingOrg + "'") -Level INFO
+            }
+        }
+
+        # Optionales TargetDir
+        if ($TargetDir) {
+            $arguments += "/TargetDir:`"$TargetDir`""
+        }
+
+        Write-Log "Starte Exchange Setup (kann 60-90 Min dauern)..." -Level INFO
+        Write-Log ("Argumente: " + ($arguments -join ' ')) -Level INFO
+
         $exitCode = Invoke-ResponsiveProcess -FilePath $SetupPath -Arguments $arguments -LogPrefix "Exchange-Setup" -HeartbeatSec 60
-        if ($exitCode -eq 0) { Write-Log "Exchange installiert" -Level SUCCESS; return $true }
-        Write-Log ("Setup fehlgeschlagen: " + $exitCode) -Level ERROR
+
+        if ($exitCode -eq 0) {
+            Write-Log "Exchange-Server erfolgreich installiert!" -Level SUCCESS
+            return $true
+        }
+        Write-Log ("Setup fehlgeschlagen mit Exit-Code: " + $exitCode) -Level ERROR
         return $false
-    } catch { Write-Log ("Fehler: " + $_) -Level ERROR; return $false }
+    }
+    catch {
+        Write-Log ("Fehler: " + $_) -Level ERROR
+        return $false
+    }
 }
 
 function Install-AntiSpamAgents {
@@ -724,46 +1190,143 @@ function Test-ExchangeInstallation {
 
 # AD-Funktionen
 function Get-ExchangeSchemaInfo {
+    <#
+    .SYNOPSIS
+        Liest AD-Schema-Version, Exchange-Org-Version und Domain-Version.
+    .DESCRIPTION
+        Verwendet DirectorySearcher (zuverlaessig) statt direktem ADSI-Property-Zugriff.
+        Funktioniert ohne AD-PowerShell-Modul.
+    #>
     $info = [PSCustomObject]@{
-        SchemaVersion="Unbekannt"; OrgVersion="Unbekannt"; DomainVersion="Unbekannt"
-        SchemaVersionNeeded="17004"; OrgVersionNeeded="16762"; DomainVersionNeeded="13243"
-        SchemaOK=$false; OrgOK=$false; DomainOK=$false
-        ConfigNC=""; DomainNC=""; ExchangeOrgName=""
+        SchemaVersion       = "Unbekannt"
+        OrgVersion          = "Unbekannt"
+        DomainVersion       = "Unbekannt"
+        SchemaVersionNeeded = "17003"
+        OrgVersionNeeded    = "16762"
+        DomainVersionNeeded = "13243"
+        SchemaOK            = $false
+        OrgOK               = $false
+        DomainOK            = $false
+        ConfigNC            = ""
+        DomainNC            = ""
+        SchemaNC            = ""
+        ExchangeOrgName     = ""
     }
+
     try {
+        # =====================================================
+        # 1. RootDSE Naming Contexts ermitteln (robust)
+        # =====================================================
         $rootDSE = [ADSI]"LDAP://RootDSE"
-        $info.ConfigNC = "$($rootDSE.configurationNamingContext)"
-        $info.DomainNC = "$($rootDSE.defaultNamingContext)"
-        try {
-            $so = [ADSI]"LDAP://CN=ms-Exch-Schema-Version-Pt,$($rootDSE.schemaNamingContext)"
-            if ($so.rangeUpper) {
-                $info.SchemaVersion = "$($so.rangeUpper)"
-                $info.SchemaOK = ([int]$info.SchemaVersion -ge [int]$info.SchemaVersionNeeded)
+
+        # WICHTIG: .Properties[...][0] statt $obj.attribute - das vermeidet ResultCollection
+        try { $info.ConfigNC = $rootDSE.Properties["configurationNamingContext"][0] } catch {}
+        try { $info.DomainNC = $rootDSE.Properties["defaultNamingContext"][0] }       catch {}
+        try { $info.SchemaNC = $rootDSE.Properties["schemaNamingContext"][0] }        catch {}
+
+        # Fallback ueber direkten Zugriff
+        if (-not $info.ConfigNC) { try { $info.ConfigNC = $rootDSE.configurationNamingContext.ToString() } catch {} }
+        if (-not $info.DomainNC) { try { $info.DomainNC = $rootDSE.defaultNamingContext.ToString() }       catch {} }
+        if (-not $info.SchemaNC) { try { $info.SchemaNC = $rootDSE.schemaNamingContext.ToString() }        catch {} }
+
+        Write-Log ("  ConfigNC: " + $info.ConfigNC) -Level INFO
+        Write-Log ("  DomainNC: " + $info.DomainNC) -Level INFO
+        Write-Log ("  SchemaNC: " + $info.SchemaNC) -Level INFO
+
+        # =====================================================
+        # 2. Schema-Version: rangeUpper von ms-Exch-Schema-Version-Pt
+        # =====================================================
+        if ($info.SchemaNC) {
+            try {
+                $searcher = New-Object System.DirectoryServices.DirectorySearcher
+                $searcher.SearchRoot = [ADSI]("LDAP://" + $info.SchemaNC)
+                $searcher.Filter = "(cn=ms-Exch-Schema-Version-Pt)"
+                $searcher.PropertiesToLoad.Add("rangeUpper") | Out-Null
+                $searcher.SearchScope = "Subtree"
+                $result = $searcher.FindOne()
+                if ($result -and $result.Properties["rangeupper"].Count -gt 0) {
+                    $info.SchemaVersion = "$($result.Properties['rangeupper'][0])"
+                    $info.SchemaOK = ([int]$info.SchemaVersion -ge [int]$info.SchemaVersionNeeded)
+                    Write-Log ("  Schema-Version gefunden: " + $info.SchemaVersion) -Level INFO
+                } else {
+                    Write-Log "  Schema noch nicht erweitert (kein ms-Exch-Schema-Version-Pt)" -Level INFO
+                }
+            } catch {
+                Write-Log ("  Fehler beim Schema-Lookup: " + $_) -Level WARNING
             }
-        } catch {}
-        try {
-            $ec = [ADSI]"LDAP://CN=Microsoft Exchange,CN=Services,$($info.ConfigNC)"
-            foreach ($child in $ec.psbase.Children) {
-                if ($child.objectClass -contains "msExchOrganizationContainer") {
-                    $info.ExchangeOrgName = "$($child.cn)"
-                    if ($child.ObjectVersion) {
-                        $info.OrgVersion = "$($child.ObjectVersion)"
-                        $info.OrgOK = ([int]$info.OrgVersion -ge [int]$info.OrgVersionNeeded)
+        }
+
+                # =====================================================
+        # 3. Exchange-Organisation: prueft erst ob Container existiert
+        # =====================================================
+        if ($info.ConfigNC) {
+            $msExchPath = "LDAP://CN=Microsoft Exchange,CN=Services," + $info.ConfigNC
+            $exchExists = $false
+            try {
+                $testObj = [ADSI]$msExchPath
+                # Bei nicht existierenden Pfaden ist .Path leer oder wirft beim Zugriff
+                if ($testObj.distinguishedName) { $exchExists = $true }
+            } catch { $exchExists = $false }
+
+            if (-not $exchExists) {
+                Write-Log "  Exchange-Container im AD existiert noch nicht (frische Installation)" -Level INFO
+                $info.OrgVersion = "Nicht vorhanden"
+                $info.ExchangeOrgName = "(noch nicht installiert)"
+            }
+            else {
+                try {
+                    $searcher = New-Object System.DirectoryServices.DirectorySearcher
+                    $searcher.SearchRoot = [ADSI]$msExchPath
+                    $searcher.Filter = "(objectClass=msExchOrganizationContainer)"
+                    $searcher.PropertiesToLoad.AddRange(@("cn","objectVersion")) | Out-Null
+                    $searcher.SearchScope = "OneLevel"
+                    $result = $searcher.FindOne()
+                    if ($result) {
+                        if ($result.Properties["cn"].Count -gt 0) {
+                            $info.ExchangeOrgName = "$($result.Properties['cn'][0])"
+                        }
+                        if ($result.Properties["objectversion"].Count -gt 0) {
+                            $info.OrgVersion = "$($result.Properties['objectversion'][0])"
+                            $info.OrgOK = ([int]$info.OrgVersion -ge [int]$info.OrgVersionNeeded)
+                        }
+                        Write-Log ("  Org gefunden: " + $info.ExchangeOrgName + " v" + $info.OrgVersion) -Level INFO
                     }
-                    break
+                } catch {
+                    Write-Log ("  Org-Lookup-Fehler: " + $_) -Level WARNING
                 }
             }
-        } catch {}
-        try {
-            $do = [ADSI]"LDAP://CN=Microsoft Exchange System Objects,$($info.DomainNC)"
-            if ($do.ObjectVersion) {
-                $info.DomainVersion = "$($do.ObjectVersion)"
-                $info.DomainOK = ([int]$info.DomainVersion -ge [int]$info.DomainVersionNeeded)
+        }
+
+
+        # =====================================================
+        # 4. Domain-Vorbereitung: ObjectVersion in CN=Microsoft Exchange System Objects,...
+        # =====================================================
+        if ($info.DomainNC) {
+            try {
+                $searcher = New-Object System.DirectoryServices.DirectorySearcher
+                $searcher.SearchRoot = [ADSI]("LDAP://" + $info.DomainNC)
+                $searcher.Filter = "(cn=Microsoft Exchange System Objects)"
+                $searcher.PropertiesToLoad.Add("objectVersion") | Out-Null
+                $searcher.SearchScope = "OneLevel"
+                $result = $searcher.FindOne()
+                if ($result -and $result.Properties["objectversion"].Count -gt 0) {
+                    $info.DomainVersion = "$($result.Properties['objectversion'][0])"
+                    $info.DomainOK = ([int]$info.DomainVersion -ge [int]$info.DomainVersionNeeded)
+                    Write-Log ("  Domain-Version gefunden: " + $info.DomainVersion) -Level INFO
+                } else {
+                    Write-Log "  Keine Domain-Vorbereitung gefunden" -Level INFO
+                }
+            } catch {
+                Write-Log ("  Fehler beim Domain-Lookup: " + $_) -Level WARNING
             }
-        } catch {}
-    } catch {}
+        }
+    }
+    catch {
+        Write-Log ("Fehler beim Lesen der AD-Versionen: " + $_) -Level ERROR
+    }
     return $info
 }
+
 
 function Test-ExchangePrepPermissions {
     $r = [PSCustomObject]@{
@@ -965,44 +1528,141 @@ $Global:LblSMB1       = New-Label "..." 310 228 400 $Global:FontBold
 $GrpPS.Controls.Add($Global:LblSMB1)
 
 $BtnRefreshPrereq = New-Button "Status aktualisieren" 870 28 200 32 $Global:ColorAccent
+
 $BtnRefreshPrereq.Add_Click({
     try {
         Write-Log "Lese Voraussetzungs-Status..." -Level INFO
         $st = Get-PrerequisiteStatus
 
-        $Global:LblDotNet.Text = if ($st.DotNet48) { "OK - installiert" } else { "FEHLT - wird installiert" }
+        # ===== Status-Labels aktualisieren =====
+        $Global:LblDotNet.Text = if ($st.DotNet48) { "OK - bereits installiert" } else { "FEHLT - wird installiert" }
         $Global:LblDotNet.ForeColor = if ($st.DotNet48) { $Global:ColorAccent2 } else { $Global:ColorWarning }
 
-        $Global:LblVC2012.Text = if ($st.VC2012) { "OK - installiert" } else { "FEHLT - wird installiert" }
+        $Global:LblVC2012.Text = if ($st.VC2012) { "OK - bereits installiert" } else { "FEHLT - wird installiert" }
         $Global:LblVC2012.ForeColor = if ($st.VC2012) { $Global:ColorAccent2 } else { $Global:ColorWarning }
 
-        $Global:LblVC2013.Text = if ($st.VC2013) { "OK - installiert" } else { "FEHLT - wird installiert" }
+        $Global:LblVC2013.Text = if ($st.VC2013) { "OK - bereits installiert" } else { "FEHLT - wird installiert" }
         $Global:LblVC2013.ForeColor = if ($st.VC2013) { $Global:ColorAccent2 } else { $Global:ColorWarning }
 
-        $Global:LblURLRewrite.Text = if ($st.URLRewrite) { "OK - installiert" } else { "FEHLT - wird installiert" }
+        $Global:LblURLRewrite.Text = if ($st.URLRewrite) { "OK - bereits installiert" } else { "FEHLT - wird installiert" }
         $Global:LblURLRewrite.ForeColor = if ($st.URLRewrite) { $Global:ColorAccent2 } else { $Global:ColorWarning }
 
-        $Global:LblUCMA.Text = if ($st.UCMA) { "OK - installiert" } else { "FEHLT - wird von ISO installiert" }
+        $Global:LblUCMA.Text = if ($st.UCMA) { "OK - bereits installiert" } else { "FEHLT - wird von ISO installiert" }
         $Global:LblUCMA.ForeColor = if ($st.UCMA) { $Global:ColorAccent2 } else { $Global:ColorWarning }
 
-        $Global:LblFeatures.Text = if ($st.FeaturesOK) { "OK - alle Features installiert" } else { ($st.MissingFeatures.Count.ToString() + " Features fehlen") }
+        $Global:LblFeatures.Text = if ($st.FeaturesOK) { "OK - alle Features installiert" } else { ($st.MissingFeatures.Count.ToString() + " Features fehlen - werden installiert") }
         $Global:LblFeatures.ForeColor = if ($st.FeaturesOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
 
-        $Global:LblSMB1.Text = if ($st.SMB1Enabled) { "AKTIV - sollte deaktiviert werden!" } else { "OK - deaktiviert" }
+        $Global:LblSMB1.Text = if ($st.SMB1Enabled) { "AKTIV - wird deaktiviert" } else { "OK - bereits deaktiviert" }
         $Global:LblSMB1.ForeColor = if ($st.SMB1Enabled) { $Global:ColorWarning } else { $Global:ColorAccent2 }
 
+        # ===== SMART AUTO-SELECTION =====
+        # Nur fehlende Komponenten werden ausgewaehlt!
+        $Global:ChkInstDotNet.Checked     = -not $st.DotNet48
+        $Global:ChkInstVC2012.Checked     = -not $st.VC2012
+        $Global:ChkInstVC2013.Checked     = -not $st.VC2013
+        $Global:ChkInstURLRewrite.Checked = -not $st.URLRewrite
+        $Global:ChkInstUCMA.Checked       = -not $st.UCMA
+        $Global:ChkInstFeatures.Checked   = -not $st.FeaturesOK
+        $Global:ChkDisableSMB1.Checked    = $st.SMB1Enabled
+
+        # Bereits OK = grau und durchgestrichen
+        if ($st.DotNet48) {
+            $Global:ChkInstDotNet.Text = ".NET Framework 4.8 (BEREITS INSTALLIERT)"
+            $Global:ChkInstDotNet.ForeColor = $Global:ColorAccent2
+            $Global:ChkInstDotNet.Enabled = $false
+        } else {
+            $Global:ChkInstDotNet.Text = ".NET Framework 4.8 (Download von Microsoft)"
+            $Global:ChkInstDotNet.ForeColor = $Global:ColorWarning
+            $Global:ChkInstDotNet.Enabled = $true
+        }
+
+        if ($st.VC2012) {
+            $Global:ChkInstVC2012.Text = "Visual C++ 2012 x64 (BEREITS INSTALLIERT)"
+            $Global:ChkInstVC2012.ForeColor = $Global:ColorAccent2
+            $Global:ChkInstVC2012.Enabled = $false
+        } else {
+            $Global:ChkInstVC2012.Text = "Visual C++ 2012 x64 Redistributable"
+            $Global:ChkInstVC2012.ForeColor = $Global:ColorWarning
+            $Global:ChkInstVC2012.Enabled = $true
+        }
+
+        if ($st.VC2013) {
+            $Global:ChkInstVC2013.Text = "Visual C++ 2013 x64 (BEREITS INSTALLIERT)"
+            $Global:ChkInstVC2013.ForeColor = $Global:ColorAccent2
+            $Global:ChkInstVC2013.Enabled = $false
+        } else {
+            $Global:ChkInstVC2013.Text = "Visual C++ 2013 x64 Redistributable"
+            $Global:ChkInstVC2013.ForeColor = $Global:ColorWarning
+            $Global:ChkInstVC2013.Enabled = $true
+        }
+
+        if ($st.URLRewrite) {
+            $Global:ChkInstURLRewrite.Text = "IIS URL Rewrite Module 2.1 (BEREITS INSTALLIERT)"
+            $Global:ChkInstURLRewrite.ForeColor = $Global:ColorAccent2
+            $Global:ChkInstURLRewrite.Enabled = $false
+        } else {
+            $Global:ChkInstURLRewrite.Text = "IIS URL Rewrite Module 2.1"
+            $Global:ChkInstURLRewrite.ForeColor = $Global:ColorWarning
+            $Global:ChkInstURLRewrite.Enabled = $true
+        }
+
+        if ($st.UCMA) {
+            $Global:ChkInstUCMA.Text = "UCMA 4.0 (BEREITS INSTALLIERT)"
+            $Global:ChkInstUCMA.ForeColor = $Global:ColorAccent2
+            $Global:ChkInstUCMA.Enabled = $false
+        } else {
+            $Global:ChkInstUCMA.Text = "UCMA 4.0 (von Exchange-ISO automatisch)"
+            $Global:ChkInstUCMA.ForeColor = $Global:ColorWarning
+            $Global:ChkInstUCMA.Enabled = $true
+        }
+
+        if ($st.FeaturesOK) {
+            $Global:ChkInstFeatures.Text = "Windows-Features (ALLE BEREITS INSTALLIERT)"
+            $Global:ChkInstFeatures.ForeColor = $Global:ColorAccent2
+            $Global:ChkInstFeatures.Enabled = $false
+        } else {
+            $Global:ChkInstFeatures.Text = ($st.MissingFeatures.Count.ToString() + " Windows-Features installieren")
+            $Global:ChkInstFeatures.ForeColor = $Global:ColorWarning
+            $Global:ChkInstFeatures.Enabled = $true
+        }
+
+        if (-not $st.SMB1Enabled) {
+            $Global:ChkDisableSMB1.Text = "SMB1 deaktivieren (BEREITS DEAKTIVIERT)"
+            $Global:ChkDisableSMB1.ForeColor = $Global:ColorAccent2
+            $Global:ChkDisableSMB1.Enabled = $false
+        } else {
+            $Global:ChkDisableSMB1.Text = "SMB1 deaktivieren (Best Practice - WIRD AUSGEFUEHRT)"
+            $Global:ChkDisableSMB1.ForeColor = $Global:ColorWarning
+            $Global:ChkDisableSMB1.Enabled = $true
+        }
+
+        # Pagefile + Powerplan: keine echte Pruefung moeglich, einfach lassen
+        $Global:ChkSetPagefile.ForeColor = $Global:ColorText
+        $Global:ChkSetHighPerf.ForeColor = $Global:ColorText
+
+        # ===== Zusammenfassung =====
         $todo = @()
         if (-not $st.DotNet48)   { $todo += ".NET 4.8" }
         if (-not $st.VC2012)     { $todo += "VC++ 2012" }
         if (-not $st.VC2013)     { $todo += "VC++ 2013" }
         if (-not $st.URLRewrite) { $todo += "URL Rewrite" }
-        if (-not $st.UCMA)       { $todo += "UCMA" }
-        if (-not $st.FeaturesOK) { $todo += "Windows-Features" }
+        if (-not $st.UCMA)       { $todo += "UCMA 4.0" }
+        if (-not $st.FeaturesOK) { $todo += ($st.MissingFeatures.Count.ToString() + " Win-Features") }
         if ($st.SMB1Enabled)     { $todo += "SMB1-Disable" }
-        if ($todo.Count -eq 0) { Write-Log ">>> Server ist VOLLSTAENDIG vorbereitet!" -Level SUCCESS }
-        else { Write-Log (">>> Aktionen noetig: " + ($todo -join ", ")) -Level WARNING }
-    } catch { Write-Log ("Fehler: " + $_) -Level ERROR }
+
+        if ($todo.Count -eq 0) {
+            Write-Log ">>> Server ist VOLLSTAENDIG vorbereitet - keine Aktion noetig!" -Level SUCCESS
+        } else {
+            Write-Log (">>> Erforderliche Aktionen: " + ($todo -join ", ")) -Level WARNING
+            Write-Log ("    " + $todo.Count + " von 7 Punkten muessen ausgefuehrt werden") -Level INFO
+        }
+
+        Write-Log "Voraussetzungs-Status aktualisiert + Checkboxen automatisch gesetzt" -Level SUCCESS
+    }
+    catch { Write-Log ("Fehler: " + $_) -Level ERROR }
 })
+
 $GrpPS.Controls.Add($BtnRefreshPrereq)
 
 # Optionen
@@ -1101,59 +1761,122 @@ $BtnRefreshAD.Add_Click({
         $info = Get-ExchangeSchemaInfo
         $perm = Test-ExchangePrepPermissions
 
+        # === Schema ===
         $Global:LblADSchemaCur.Text = $info.SchemaVersion
         $Global:LblADSchemaReq.Text = $info.SchemaVersionNeeded
-        $Global:LblADSchemaSt.Text = if ($info.SchemaOK) { "OK - aktuell" } else { "Update noetig" }
-        $Global:LblADSchemaSt.ForeColor = if ($info.SchemaOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
+        if ($info.SchemaOK) {
+            $Global:LblADSchemaSt.Text = "OK - aktuell"
+            $Global:LblADSchemaSt.ForeColor = $Global:ColorAccent2
+        } elseif ($info.SchemaVersion -eq "Nicht vorhanden") {
+            $Global:LblADSchemaSt.Text = "Wird neu erstellt"
+            $Global:LblADSchemaSt.ForeColor = $Global:ColorWarning
+        } else {
+            $Global:LblADSchemaSt.Text = "Update noetig"
+            $Global:LblADSchemaSt.ForeColor = $Global:ColorWarning
+        }
 
+        # === Organisation ===
         $Global:LblADOrgCur.Text = "$($info.OrgVersion) ($($info.ExchangeOrgName))"
         $Global:LblADOrgReq.Text = $info.OrgVersionNeeded
-        $Global:LblADOrgSt.Text = if ($info.OrgOK) { "OK - aktuell" } else { "Update noetig" }
-        $Global:LblADOrgSt.ForeColor = if ($info.OrgOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
+        if ($info.OrgOK) {
+            $Global:LblADOrgSt.Text = "OK - aktuell"
+            $Global:LblADOrgSt.ForeColor = $Global:ColorAccent2
+        } elseif ($info.OrgVersion -eq "Nicht vorhanden") {
+            $Global:LblADOrgSt.Text = "Wird neu erstellt"
+            $Global:LblADOrgSt.ForeColor = $Global:ColorWarning
+        } else {
+            $Global:LblADOrgSt.Text = "Update noetig"
+            $Global:LblADOrgSt.ForeColor = $Global:ColorWarning
+        }
 
+        # === Domain ===
         $Global:LblADDomCur.Text = $info.DomainVersion
         $Global:LblADDomReq.Text = $info.DomainVersionNeeded
-        $Global:LblADDomSt.Text = if ($info.DomainOK) { "OK - aktuell" } else { "Update noetig" }
-        $Global:LblADDomSt.ForeColor = if ($info.DomainOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
+        if ($info.DomainOK) {
+            $Global:LblADDomSt.Text = "OK - aktuell"
+            $Global:LblADDomSt.ForeColor = $Global:ColorAccent2
+        } elseif ($info.DomainVersion -eq "Nicht vorhanden") {
+            $Global:LblADDomSt.Text = "Wird neu erstellt"
+            $Global:LblADDomSt.ForeColor = $Global:ColorWarning
+        } else {
+            $Global:LblADDomSt.Text = "Update noetig"
+            $Global:LblADDomSt.ForeColor = $Global:ColorWarning
+        }
 
+        # === Berechtigungen ===
         $Global:LblADUser.Text = $perm.Username
         $pp = @()
         $pp += if ($perm.IsSchemaAdmin)     { "[X] Schema-Admins" }     else { "[ ] Schema-Admins" }
         $pp += if ($perm.IsEnterpriseAdmin) { "[X] Enterprise-Admins" } else { "[ ] Enterprise-Admins" }
         $pp += if ($perm.IsDomainAdmin)     { "[X] Domain-Admins" }     else { "[ ] Domain-Admins" }
         $Global:LblADPerms.Text = ($pp -join "  |  ")
-        $Global:LblADPerms.ForeColor = if ($perm.IsSchemaAdmin -and $perm.IsEnterpriseAdmin -and $perm.IsDomainAdmin) { $Global:ColorAccent2 } else { $Global:ColorWarning }
+        $Global:LblADPerms.ForeColor = if ($perm.IsSchemaAdmin -and $perm.IsEnterpriseAdmin -and $perm.IsDomainAdmin) {
+            $Global:ColorAccent2
+        } else { $Global:ColorWarning }
 
-        # Smart Auto-Selection
+        # === Smart Auto-Selection ===
         $Global:ChkPrepSchema.Checked = -not $info.SchemaOK
         $Global:ChkPrepAD.Checked     = -not $info.OrgOK
         $Global:ChkPrepDom.Checked    = -not $info.DomainOK
 
+        # Beschriftungen anpassen
         if ($info.SchemaOK) {
             $Global:ChkPrepSchema.Text = "1. PrepareSchema  (NICHT NOETIG - bereits aktuell)"
             $Global:ChkPrepSchema.ForeColor = $Global:ColorAccent2
+        } elseif ($info.SchemaVersion -eq "Nicht vorhanden") {
+            $Global:ChkPrepSchema.Text = "1. PrepareSchema  (NEUINSTALLATION - Schema wird erweitert)"
+            $Global:ChkPrepSchema.ForeColor = $Global:ColorWarning
         } else {
-            $Global:ChkPrepSchema.Text = "1. PrepareSchema  (NOETIG - aktuelle Version: " + $info.SchemaVersion + ")"
+            $Global:ChkPrepSchema.Text = "1. PrepareSchema  (UPDATE - aktuelle Version: " + $info.SchemaVersion + ")"
             $Global:ChkPrepSchema.ForeColor = $Global:ColorWarning
         }
+
         if ($info.OrgOK) {
             $Global:ChkPrepAD.Text = "2. PrepareAD  (NICHT NOETIG - bereits aktuell)"
             $Global:ChkPrepAD.ForeColor = $Global:ColorAccent2
+        } elseif ($info.OrgVersion -eq "Nicht vorhanden") {
+            $Global:ChkPrepAD.Text = "2. PrepareAD  (NEUINSTALLATION - Exchange-Organisation wird erstellt)"
+            $Global:ChkPrepAD.ForeColor = $Global:ColorWarning
         } else {
-            $Global:ChkPrepAD.Text = "2. PrepareAD  (NOETIG - aktuelle Version: " + $info.OrgVersion + ")"
+            $Global:ChkPrepAD.Text = "2. PrepareAD  (UPDATE - aktuelle Version: " + $info.OrgVersion + ")"
             $Global:ChkPrepAD.ForeColor = $Global:ColorWarning
         }
+
         if ($info.DomainOK) {
             $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (NICHT NOETIG - bereits aktuell)"
             $Global:ChkPrepDom.ForeColor = $Global:ColorAccent2
+        } elseif ($info.DomainVersion -eq "Nicht vorhanden") {
+            $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (NEUINSTALLATION - Domain wird vorbereitet)"
+            $Global:ChkPrepDom.ForeColor = $Global:ColorWarning
         } else {
-            $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (NOETIG - aktuelle Version: " + $info.DomainVersion + ")"
+            $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (UPDATE - aktuelle Version: " + $info.DomainVersion + ")"
             $Global:ChkPrepDom.ForeColor = $Global:ColorWarning
         }
 
+        # === Zusammenfassung ===
+        $isFreshInstall = ($info.SchemaVersion -eq "Nicht vorhanden") -and `
+                          ($info.OrgVersion -eq "Nicht vorhanden") -and `
+                          ($info.DomainVersion -eq "Nicht vorhanden")
+        $todo = @()
+        if (-not $info.SchemaOK) { $todo += "PrepareSchema" }
+        if (-not $info.OrgOK)    { $todo += "PrepareAD" }
+        if (-not $info.DomainOK) { $todo += "PrepareDomain" }
+
+        if ($todo.Count -eq 0) {
+            Write-Log ">>> AD ist VOLLSTAENDIG vorbereitet - keine Aktion noetig!" -Level SUCCESS
+        } elseif ($isFreshInstall) {
+            Write-Log ">>> ERSTINSTALLATION erkannt - alle 3 Schritte werden durchgefuehrt:" -Level WARNING
+            Write-Log "    PrepareSchema -> PrepareAD -> PrepareDomain" -Level INFO
+            Write-Log ("    Wichtig: Organisationsname '" + $Global:TxtOrg.Text + "' wird verwendet (im Tab 'Installation' aenderbar)") -Level INFO
+        } else {
+            Write-Log (">>> Erforderliche Aktionen: " + ($todo -join ", ")) -Level WARNING
+        }
+
         Write-Log "AD-Status aktualisiert" -Level SUCCESS
-    } catch { Write-Log ("Fehler: " + $_) -Level ERROR }
+    }
+    catch { Write-Log ("Fehler bei Status-Refresh: " + $_) -Level ERROR }
 })
+
 $GrpADStatus.Controls.Add($BtnRefreshAD)
 
 $GrpPrepSteps = New-GroupBox "Vorbereitungsschritte (werden nach 'Status aktualisieren' automatisch gesetzt)" 10 240 1080 220
@@ -1331,13 +2054,83 @@ $BtnDetectISO.Add_Click({
     } catch { Write-Log ("Fehler: " + $_) -Level ERROR }
 })
 $GrpISO.Controls.Add($BtnDetectISO)
+# === NEU: Rollen-Auswahl ===
+$GrpSetup.Controls.Add( (New-Label "Server-Rollen: *" 15 145 150 $Global:FontBold) )
 
-$GrpSetup = New-GroupBox "Exchange Setup-Parameter" 10 185 1080 145
+$Global:ChkRoleMailbox = New-CheckBox "Mailbox-Server (Standard)" 175 145 250 $true
+$GrpSetup.Controls.Add($Global:ChkRoleMailbox)
+
+$Global:ChkRoleEdge = New-CheckBox "Edge-Transport (nur in DMZ)" 440 145 250 $false
+$GrpSetup.Controls.Add($Global:ChkRoleEdge)
+
+$Global:ChkRoleMgmt = New-CheckBox "Management-Tools (empfohlen)" 705 145 280 $true
+$GrpSetup.Controls.Add($Global:ChkRoleMgmt)
+
+# Edge + Mailbox schliessen sich aus
+$Global:ChkRoleEdge.Add_CheckedChanged({
+    if ($Global:ChkRoleEdge.Checked) {
+        $Global:ChkRoleMailbox.Checked = $false
+        $Global:ChkRoleMailbox.Enabled = $false
+        [System.Windows.Forms.MessageBox]::Show(
+            "Edge-Transport kann NICHT zusammen mit Mailbox-Rolle installiert werden!`r`n`r`nEdge-Server muessen in der DMZ (Workgroup) sein, NICHT in der Domain.",
+            "Edge-Server",'OK','Warning')
+    } else {
+        $Global:ChkRoleMailbox.Enabled = $true
+        $Global:ChkRoleMailbox.Checked = $true
+    }
+})
+
+# Diagnostikdaten
+$GrpSetup.Controls.Add( (New-Label "Diagnostikdaten:" 15 175 150) )
+$Global:ChkDiagData = New-CheckBox "An Microsoft senden (DataON) - Standard: OFF" 175 175 500 $false
+$GrpSetup.Controls.Add($Global:ChkDiagData)
+
+$GrpSetup = New-GroupBox "Exchange Setup-Parameter" 10 185 1080 210
 $TabInstall.Controls.Add($GrpSetup)
 
 $GrpSetup.Controls.Add( (New-Label "Organisation: *" 15 28 150) )
 $Global:TxtOrg = New-TextBox 175 26 400 "Contoso"
 $GrpSetup.Controls.Add($Global:TxtOrg)
+
+# === NEU: Visuelle Anzeige + Sync mit AD ===
+$Global:LblOrgWarning = New-Object System.Windows.Forms.Label
+$Global:LblOrgWarning.Location  = New-Object System.Drawing.Point(580, 28)
+$Global:LblOrgWarning.Size      = New-Object System.Drawing.Size(465, 20)
+$Global:LblOrgWarning.Font      = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$Global:LblOrgWarning.BackColor = [System.Drawing.Color]::Transparent
+$Global:LblOrgWarning.Text      = ""
+$GrpSetup.Controls.Add($Global:LblOrgWarning)
+
+# Beim Tippen pruefen
+$Global:TxtOrg.Add_TextChanged({
+    try {
+        if (-not $Global:LblOrgWarning) { return }
+        $rootDSE = [ADSI]"LDAP://RootDSE"
+        $configNC = $rootDSE.Properties["configurationNamingContext"][0]
+        $searcher = New-Object System.DirectoryServices.DirectorySearcher
+        $searcher.SearchRoot = [ADSI]("LDAP://CN=Microsoft Exchange,CN=Services," + $configNC)
+        $searcher.Filter = "(objectClass=msExchOrganizationContainer)"
+        $searcher.PropertiesToLoad.Add("cn") | Out-Null
+        $searcher.SearchScope = "OneLevel"
+        $result = $searcher.FindOne()
+        if ($result) {
+            $exOrg = "$($result.Properties['cn'][0])"
+            if ($Global:TxtOrg.Text -eq $exOrg) {
+                $Global:LblOrgWarning.Text = "  passt zu existierender Org '" + $exOrg + "'"
+                $Global:LblOrgWarning.ForeColor = $Global:ColorAccent2
+            } else {
+                $Global:LblOrgWarning.Text = "  WARNUNG: AD hat bereits Org '" + $exOrg + "'!"
+                $Global:LblOrgWarning.ForeColor = $Global:ColorError
+            }
+        } else {
+            $Global:LblOrgWarning.Text = "  (frische Installation - Org wird neu erstellt)"
+            $Global:LblOrgWarning.ForeColor = $Global:ColorTextDim
+        }
+    } catch {
+        # AD nicht erreichbar - kein Hinweis
+    }
+})
+
 
 $GrpSetup.Controls.Add( (New-Label "Servername:" 15 58 150) )
 $Global:TxtServer = New-TextBox 175 56 400 $env:COMPUTERNAME
@@ -1380,6 +2173,32 @@ foreach ($o in $opts) {
 
 $Form.Add_Shown({
     try {
+        Show-SplashScreen
+
+        $issues = @()
+        $info_items = @()
+
+        # === 1. System-Basis-Infos ===
+        Update-SplashStatus "Lese System-Informationen..."
+        try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+            $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+            $ramGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+            $sysDrive = Get-PSDrive -Name ($env:SystemDrive.Replace(":","")) -ErrorAction SilentlyContinue
+            $freeGB = [math]::Round($sysDrive.Free / 1GB, 1)
+
+            $info_items += "OS: $($os.Caption)"
+            $info_items += "RAM: $ramGB GB"
+            $info_items += "Frei C:\: $freeGB GB"
+            $info_items += "Computer: $($cs.Name).$($cs.Domain)"
+
+            if ($ramGB -lt 8)   { $issues += "RAM < 8 GB" }
+            if ($freeGB -lt 15) { $issues += "Freier Speicher < 15 GB" }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # === 2. ISO-Auto-Erkennung ===
+        Update-SplashStatus "Suche nach gemounteten Exchange-ISOs..."
         $found = @(Find-MountedExchangeISO)
         $Global:DetectedISOs = $found
         if ($found.Count -gt 0) {
@@ -1388,10 +2207,230 @@ $Form.Add_Shown({
             $Global:CmbMountedDrives.SelectedIndex = 0
             $Global:RbISOMounted.Checked = $true
             $Global:RbISOFile.Checked    = $false
-            Write-Log ("Auto-Erkennung beim Start: " + $found.Count + " ISO(s) gefunden") -Level SUCCESS
+            $info_items += "ISO erkannt: $($found[0].DriveLetter) ($($found[0].VolumeName))"
+        } else {
+            $info_items += "ISO: keine gemountet"
         }
-    } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # === 3. Voraussetzungen pruefen ===
+        Update-SplashStatus "Pruefe Windows-Voraussetzungen..."
+        $prereqStatus = Get-PrerequisiteStatus
+        if (-not $prereqStatus.DotNet48)   { $issues += ".NET 4.8 fehlt" }
+        if (-not $prereqStatus.VC2012)     { $issues += "VC++ 2012 fehlt" }
+        if (-not $prereqStatus.VC2013)     { $issues += "VC++ 2013 fehlt" }
+        if (-not $prereqStatus.URLRewrite) { $issues += "URL Rewrite fehlt" }
+        if (-not $prereqStatus.UCMA)       { $issues += "UCMA fehlt" }
+        if (-not $prereqStatus.FeaturesOK) { $issues += ($prereqStatus.MissingFeatures.Count.ToString() + " Win-Features fehlen") }
+        if ($prereqStatus.SMB1Enabled)     { $issues += "SMB1 noch aktiv" }
+
+        try {
+            $BtnRefreshPrereq.PerformClick()
+            $Global:PrereqStatusLoaded = $true
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # === 4. AD-Domain-Mitgliedschaft + Berechtigungen ===
+        Update-SplashStatus "Pruefe AD-Domain-Mitgliedschaft..."
+        $isDomainJoined = $false
+        try {
+            if ($cs.PartOfDomain) {
+                $isDomainJoined = $true
+                $info_items += "Domain: $($cs.Domain)"
+            } else {
+                $issues += "Server NICHT in Domain"
+            }
+        } catch {}
+
+        $perm = Test-ExchangePrepPermissions
+        if ($isDomainJoined) {
+            if (-not $perm.IsSchemaAdmin -or -not $perm.IsEnterpriseAdmin -or -not $perm.IsDomainAdmin) {
+                $issues += "Berechtigungen unvollstaendig"
+            } else {
+                $info_items += "Berechtigungen: vollstaendig"
+            }
+        }
+        Start-Sleep -Milliseconds 200
+
+        # === 5. AD-Status DIREKT (ohne Button) abfragen ===
+        Update-SplashStatus "Pruefe Active-Directory (Schema/Org/Domain)..."
+        if ($isDomainJoined) {
+            try {
+                # Domains-Liste
+                $domains = Get-ADDomainList
+                $Global:CmbDomainList.Items.Clear()
+                foreach ($d in $domains) { [void]$Global:CmbDomainList.Items.Add($d) }
+                if ($Global:CmbDomainList.Items.Count -gt 0) { $Global:CmbDomainList.SelectedIndex = 0 }
+
+                # Direkt aufrufen (umgeht Button-Probleme beim Form_Shown)
+                $adInfo = Get-ExchangeSchemaInfo
+
+                # Labels manuell setzen
+                $Global:LblADSchemaCur.Text = $adInfo.SchemaVersion
+                $Global:LblADSchemaReq.Text = $adInfo.SchemaVersionNeeded
+                $Global:LblADOrgCur.Text    = "$($adInfo.OrgVersion) ($($adInfo.ExchangeOrgName))"
+                $Global:LblADOrgReq.Text    = $adInfo.OrgVersionNeeded
+                $Global:LblADDomCur.Text    = $adInfo.DomainVersion
+                $Global:LblADDomReq.Text    = $adInfo.DomainVersionNeeded
+
+                # Status-Texte mit Newer-Erkennung
+                $schemaIsNum = $adInfo.SchemaVersion -match '^\d+$'
+                $orgIsNum    = $adInfo.OrgVersion -match '^\d+$'
+                $domIsNum    = $adInfo.DomainVersion -match '^\d+$'
+
+                if ($adInfo.SchemaOK -or ($schemaIsNum -and [int]$adInfo.SchemaVersion -gt [int]$adInfo.SchemaVersionNeeded)) {
+                    $Global:LblADSchemaSt.Text = "OK"; $Global:LblADSchemaSt.ForeColor = $Global:ColorAccent2
+                    $Global:ChkPrepSchema.Checked = $false
+                    $Global:ChkPrepSchema.Text = "1. PrepareSchema  (NICHT NOETIG - bereits aktuell)"
+                    $Global:ChkPrepSchema.ForeColor = $Global:ColorAccent2
+                } else {
+                    $Global:LblADSchemaSt.Text = "Update noetig"; $Global:LblADSchemaSt.ForeColor = $Global:ColorWarning
+                    $Global:ChkPrepSchema.Checked = $true
+                    $issues += "AD-Schema-Update"
+                }
+
+                if ($adInfo.OrgOK -or ($orgIsNum -and [int]$adInfo.OrgVersion -gt [int]$adInfo.OrgVersionNeeded)) {
+                    $Global:LblADOrgSt.Text = "OK"; $Global:LblADOrgSt.ForeColor = $Global:ColorAccent2
+                    $Global:ChkPrepAD.Checked = $false
+                    $Global:ChkPrepAD.Text = "2. PrepareAD  (NICHT NOETIG - bereits aktuell)"
+                    $Global:ChkPrepAD.ForeColor = $Global:ColorAccent2
+                } else {
+                    $Global:LblADOrgSt.Text = "Update noetig"; $Global:LblADOrgSt.ForeColor = $Global:ColorWarning
+                    $Global:ChkPrepAD.Checked = $true
+                    $issues += "Exchange-Org-Update"
+                }
+
+                if ($adInfo.DomainOK -or ($domIsNum -and [int]$adInfo.DomainVersion -gt [int]$adInfo.DomainVersionNeeded)) {
+                    $Global:LblADDomSt.Text = "OK"; $Global:LblADDomSt.ForeColor = $Global:ColorAccent2
+                    $Global:ChkPrepDom.Checked = $false
+                    $Global:ChkPrepDom.Text = "3. Domain-Vorbereitung  (NICHT NOETIG - bereits aktuell)"
+                    $Global:ChkPrepDom.ForeColor = $Global:ColorAccent2
+                } else {
+                    $Global:LblADDomSt.Text = "Update noetig"; $Global:LblADDomSt.ForeColor = $Global:ColorWarning
+                    $Global:ChkPrepDom.Checked = $true
+                    $issues += "Domain-Update"
+                }
+
+                # User + Berechtigungen anzeigen
+                $Global:LblADUser.Text = $perm.Username
+                $pp = @()
+                $pp += if ($perm.IsSchemaAdmin)     { "[X] Schema-Admins" }     else { "[ ] Schema-Admins" }
+                $pp += if ($perm.IsEnterpriseAdmin) { "[X] Enterprise-Admins" } else { "[ ] Enterprise-Admins" }
+                $pp += if ($perm.IsDomainAdmin)     { "[X] Domain-Admins" }     else { "[ ] Domain-Admins" }
+                $Global:LblADPerms.Text = ($pp -join "  |  ")
+                $allPermsOK = $perm.IsSchemaAdmin -and $perm.IsEnterpriseAdmin -and $perm.IsDomainAdmin
+                $Global:LblADPerms.ForeColor = if ($allPermsOK) { $Global:ColorAccent2 } else { $Global:ColorWarning }
+
+                $info_items += "AD-Schema: $($adInfo.SchemaVersion) | Org: $($adInfo.OrgVersion) | Dom: $($adInfo.DomainVersion)"
+                $Global:ADStatusLoaded = $true
+            } catch {
+                $issues += "AD-Lookup-Fehler"
+                Write-Log ("AD-Lookup im Splash fehlgeschlagen: " + $_) -Level WARNING
+            }
+        }
+		# === Direkt im Splash: Org-Name aus AD nach TxtOrg uebernehmen ===
+if ($adInfo.ExchangeOrgName -and $adInfo.ExchangeOrgName -ne "(noch nicht installiert)") {
+    if ($Global:TxtOrg.Text -ne $adInfo.ExchangeOrgName) {
+        Write-Log ("  Auto-Sync: Org-Name '" + $Global:TxtOrg.Text + "' -> '" + $adInfo.ExchangeOrgName + "' (aus AD)") -Level INFO
+        $Global:TxtOrg.Text = $adInfo.ExchangeOrgName
+    }
+}
+        Start-Sleep -Milliseconds 200
+
+        # === 6. Exchange-Services pruefen (falls schon installiert) ===
+        Update-SplashStatus "Pruefe ob Exchange bereits installiert ist..."
+        try {
+            $exchInstalled = Test-Path "C:\Program Files\Microsoft\Exchange Server\V15\Bin"
+            if ($exchInstalled) {
+                $svc = Get-Service -Name "MSExchangeIS" -ErrorAction SilentlyContinue
+                if ($svc -and $svc.Status -eq "Running") {
+                    $info_items += "Exchange: bereits installiert + laeuft"
+                } elseif ($svc) {
+                    $info_items += ("Exchange: installiert, Service-Status: " + $svc.Status)
+                } else {
+                    $info_items += "Exchange-Pfad da, aber kein MSExchangeIS-Service"
+                }
+            } else {
+                $info_items += "Exchange: noch nicht installiert"
+            }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # === 7. TLS-Status kurz pruefen ===
+        Update-SplashStatus "Pruefe TLS-Konfiguration..."
+        try {
+            $tls12Path = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.2\Server"
+            $tls12 = if (Test-Path $tls12Path) { (Get-ItemProperty -Path $tls12Path -Name Enabled -ErrorAction SilentlyContinue).Enabled } else { $null }
+            if ($tls12 -and $tls12 -ne 0) {
+                $info_items += "TLS 1.2: explizit aktiviert"
+            } else {
+                $info_items += "TLS 1.2: Standard-Konfiguration"
+            }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # === 8. Pending Reboot? ===
+        Update-SplashStatus "Pruefe ausstehenden Neustart..."
+        try {
+            $rebootPending = $false
+            if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+            if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -ErrorAction SilentlyContinue) { $rebootPending = $true }
+            if ($rebootPending) {
+                $issues += "Neustart ausstehend"
+            }
+        } catch {}
+        Start-Sleep -Milliseconds 200
+
+        # === 9. Final-Status ===
+        if ($issues.Count -eq 0) {
+            Update-SplashStatus "FERTIG - System ist vollstaendig vorbereitet!"
+        } else {
+            Update-SplashStatus ("FERTIG - " + $issues.Count + " Punkt(e) zu erledigen")
+        }
+        Start-Sleep -Milliseconds 1200
+
+        Close-SplashScreen
+
+        # === Zusammenfassungs-Log ===
+        Write-Log "==============================================" -Level INFO
+        Write-Log " SYSTEM-CHECK ABGESCHLOSSEN" -Level INFO
+        Write-Log "==============================================" -Level INFO
+        foreach ($i in $info_items) { Write-Log ("  " + $i) -Level INFO }
+        Write-Log "----------------------------------------------" -Level INFO
+        if ($issues.Count -eq 0) {
+            Write-Log " ALLES OK - bereit zur Konfiguration!" -Level SUCCESS
+        } else {
+            Write-Log (" ERFORDERLICHE AKTIONEN (" + $issues.Count + "):") -Level WARNING
+            foreach ($i in $issues) { Write-Log ("   - " + $i) -Level WARNING }
+        }
+        Write-Log "==============================================" -Level INFO
+
+        # === MessageBox bei Issues ===
+        if ($issues.Count -gt 0) {
+            $msg = "System-Pruefung abgeschlossen!`r`n`r`n"
+            $msg += "Erforderliche Aktionen ($($issues.Count)):`r`n"
+            foreach ($i in $issues) { $msg += "  - $i`r`n" }
+            $msg += "`r`nBitte die entsprechenden Tabs durchgehen."
+            [System.Windows.Forms.MessageBox]::Show($msg, "System-Check abgeschlossen", 'OK', 'Information')
+
+            # Smart Tab-Wahl: bei Voraussetzungen-Issues -> Voraussetzungen, bei AD-Issues -> AD
+            $hasPrereqIssue = $false
+            $hasADIssue     = $false
+            foreach ($i in $issues) {
+                if ($i -match "VC\+\+|\.NET|URL|UCMA|Win-Features|SMB1") { $hasPrereqIssue = $true }
+                if ($i -match "Schema|Org|Domain")                       { $hasADIssue = $true }
+            }
+            if ($hasPrereqIssue) { $TabControl.SelectedTab = $TabPrereq }
+            elseif ($hasADIssue) { $TabControl.SelectedTab = $TabADPrep }
+        }
+    }
+    catch {
+        Close-SplashScreen
+        Write-Log ("Fehler beim Auto-Start: " + $_) -Level ERROR
+    }
 })
+
+
 #endregion
 
 #region ============================ TAB: SICHERHEIT / TLS ============================
@@ -1694,77 +2733,284 @@ $TabRun.Controls.Add($Global:LogTextBox)
 $BtnSaveCfg = New-Button "Konfig speichern" 10 470 180 32 $Global:ColorAccent
 $BtnSaveCfg.Add_Click({
     try {
-        $cfg = @{
-            ISO = @{ File=$Global:TxtISO.Text; UseFile=$Global:RbISOFile.Checked }
-            Setup = @{ Org=$Global:TxtOrg.Text; Server=$Global:TxtServer.Text; Install=$Global:TxtInstallPath.Text; Domain=$Global:TxtDomain.Text }
-            Options = @{}
-            Prereq = @{
-                DotNet=$Global:ChkInstDotNet.Checked; VC2012=$Global:ChkInstVC2012.Checked
-                VC2013=$Global:ChkInstVC2013.Checked; URL=$Global:ChkInstURLRewrite.Checked
-                UCMA=$Global:ChkInstUCMA.Checked; Features=$Global:ChkInstFeatures.Checked
-                SMB1=$Global:ChkDisableSMB1.Checked; Pagefile=$Global:ChkSetPagefile.Checked
-                HighPerf=$Global:ChkSetHighPerf.Checked
-            }
-            ADPrep = @{
-                PrepSchema=$Global:ChkPrepSchema.Checked; PrepAD=$Global:ChkPrepAD.Checked
-                PrepDom=$Global:ChkPrepDom.Checked; AllDomains=$Global:RbAllDomains.Checked
-                WaitMin=$Global:NumWaitMin.Value
-            }
-            AntiSpam = @{
-                SCLReject=$Global:NumSCLReject.Value; SCLDelete=$Global:NumSCLDelete.Value
-                Content=$Global:ChkContent.Checked; SenderID=$Global:ChkSenderID.Checked
-                SenderFilter=$Global:ChkSendFil.Checked; RecipientFilter=$Global:ChkRecipFil.Checked
-                SenderReputation=$Global:ChkSendRep.Checked
-            }
-            DBGen = @{
-                Prefix=$Global:TxtDBPrefix.Text; Start=$Global:TxtDBStart.Text
-                Count=$Global:NumDBCount.Value; Server=$Global:TxtDBServer.Text
-                DBBase=$Global:TxtDBBase.Text; LogBase=$Global:TxtLogBase.Text
-            }
-            DAG = @{
-                Name=$Global:TxtDAGName.Text; Witness=$Global:TxtWitness.Text
-                WitnessDir=$Global:TxtWitnessDir.Text; IP=$Global:TxtDAGIP.Text
-                IPless=$Global:ChkIPlessDAG.Checked
-                Members=$Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        # ===== DBs aus DataGridView extrahieren =====
+        $dbList = @()
+        foreach ($r in $Global:DgvDB.Rows) {
+            if ($r.IsNewRow) { continue }
+            if ([string]::IsNullOrWhiteSpace($r.Cells["DBName"].Value)) { continue }
+            $dbList += @{
+                Name   = "$($r.Cells['DBName'].Value)"
+                Server = "$($r.Cells['Server'].Value)"
+                EDB    = "$($r.Cells['EdbFilePath'].Value)"
+                Log    = "$($r.Cells['LogFolderPath'].Value)"
             }
         }
-        foreach ($k in $Global:Checks.Keys) { $cfg.Options[$k] = $Global:Checks[$k].Checked }
-        $cfg | ConvertTo-Json -Depth 6 | Set-Content $Global:ConfigFile -Encoding UTF8
-        Write-Log ("Konfig gespeichert: " + $Global:ConfigFile) -Level SUCCESS
-    } catch { Write-Log ("Fehler: " + $_) -Level ERROR }
+
+        # ===== DAG-Mitglieder aus TextBox =====
+        $dagMembers = @($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+        # ===== Komplette Konfiguration =====
+        $cfg = @{
+            Version = "3.5"
+            Saved   = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+
+            ISO = @{
+                File    = $Global:TxtISO.Text
+                UseFile = $Global:RbISOFile.Checked
+                Drive   = if ($Global:CmbMountedDrives.SelectedItem) { "$($Global:CmbMountedDrives.SelectedItem)" } else { "" }
+            }
+
+            Setup = @{
+                Org     = $Global:TxtOrg.Text
+                Server  = $Global:TxtServer.Text
+                Install = $Global:TxtInstallPath.Text
+                Domain  = $Global:TxtDomain.Text
+            }
+
+            Options = @{}
+
+            Prereq = @{
+                DotNet   = $Global:ChkInstDotNet.Checked
+                VC2012   = $Global:ChkInstVC2012.Checked
+                VC2013   = $Global:ChkInstVC2013.Checked
+                URL      = $Global:ChkInstURLRewrite.Checked
+                UCMA     = $Global:ChkInstUCMA.Checked
+                Features = $Global:ChkInstFeatures.Checked
+                SMB1     = $Global:ChkDisableSMB1.Checked
+                Pagefile = $Global:ChkSetPagefile.Checked
+                HighPerf = $Global:ChkSetHighPerf.Checked
+            }
+
+            ADPrep = @{
+                PrepSchema = $Global:ChkPrepSchema.Checked
+                PrepAD     = $Global:ChkPrepAD.Checked
+                PrepDom    = $Global:ChkPrepDom.Checked
+                AllDomains = $Global:RbAllDomains.Checked
+                SingleDom  = $Global:RbSingleDomain.Checked
+                DomainName = if ($Global:CmbDomainList.SelectedItem) { "$($Global:CmbDomainList.SelectedItem)" } else { "" }
+                WaitMin    = [int]$Global:NumWaitMin.Value
+            }
+
+            AntiSpam = @{
+                SCLReject        = [int]$Global:NumSCLReject.Value
+                SCLDelete        = [int]$Global:NumSCLDelete.Value
+                Content          = $Global:ChkContent.Checked
+                SenderID         = $Global:ChkSenderID.Checked
+                SenderFilter     = $Global:ChkSendFil.Checked
+                RecipientFilter  = $Global:ChkRecipFil.Checked
+                SenderReputation = $Global:ChkSendRep.Checked
+            }
+
+            DBGen = @{
+                Prefix  = $Global:TxtDBPrefix.Text
+                Start   = $Global:TxtDBStart.Text
+                Count   = [int]$Global:NumDBCount.Value
+                Server  = $Global:TxtDBServer.Text
+                DBBase  = $Global:TxtDBBase.Text
+                LogBase = $Global:TxtLogBase.Text
+            }
+
+            # === DBs (aus DGV-Tabelle) ===
+            DBs = $dbList
+
+            DAG = @{
+                Name       = $Global:TxtDAGName.Text
+                Witness    = $Global:TxtWitness.Text
+                WitnessDir = $Global:TxtWitnessDir.Text
+                IP         = $Global:TxtDAGIP.Text
+                IPless     = $Global:ChkIPlessDAG.Checked
+                Members    = $dagMembers
+            }
+
+            TLS = @{
+                Confirmed = $Global:ChkConfirmTLS.Checked
+            }
+        }
+
+        # Installations-Optionen
+        foreach ($k in $Global:Checks.Keys) {
+            $cfg.Options[$k] = $Global:Checks[$k].Checked
+        }
+
+        # JSON speichern
+        $cfg | ConvertTo-Json -Depth 8 | Set-Content $Global:ConfigFile -Encoding UTF8 -ErrorAction Stop
+
+        Write-Log "===========================================" -Level SUCCESS
+        Write-Log " KONFIGURATION GESPEICHERT" -Level SUCCESS
+        Write-Log "===========================================" -Level SUCCESS
+        Write-Log ("  Datei: " + $Global:ConfigFile) -Level INFO
+        Write-Log ("  Datenbanken: " + $dbList.Count) -Level INFO
+        Write-Log ("  DAG: " + $Global:TxtDAGName.Text + " mit " + $dagMembers.Count + " Mitgliedern") -Level INFO
+        Write-Log ("  Witness: " + $Global:TxtWitness.Text + " -> " + $Global:TxtWitnessDir.Text) -Level INFO
+
+        [System.Windows.Forms.MessageBox]::Show(
+            "Konfiguration gespeichert!`r`n`r`n" +
+            "Datei: $Global:ConfigFile`r`n" +
+            "Datenbanken: $($dbList.Count)`r`n" +
+            "DAG-Mitglieder: $($dagMembers.Count)",
+            "Speichern erfolgreich",'OK','Information')
+    }
+    catch {
+        Write-Log ("Speicher-Fehler: " + $_) -Level ERROR
+        [System.Windows.Forms.MessageBox]::Show(("Fehler beim Speichern: " + $_),"Fehler",'OK','Error')
+    }
 })
+
 $TabRun.Controls.Add($BtnSaveCfg)
 
 $BtnLoadCfg = New-Button "Konfig laden" 200 470 180 32 $Global:ColorAccent
 $BtnLoadCfg.Add_Click({
     try {
         if (-not (Test-Path $Global:ConfigFile)) {
-            [System.Windows.Forms.MessageBox]::Show("Keine Konfig gefunden.","Info",'OK','Information'); return
+            [System.Windows.Forms.MessageBox]::Show(
+                "Keine gespeicherte Konfiguration gefunden:`r`n$Global:ConfigFile",
+                "Info",'OK','Information')
+            return
         }
-        $cfg = Get-Content $Global:ConfigFile -Raw | ConvertFrom-Json
-        $Global:TxtISO.Text=$cfg.ISO.File; $Global:RbISOFile.Checked=[bool]$cfg.ISO.UseFile
-        $Global:RbISOMounted.Checked=-not [bool]$cfg.ISO.UseFile
-        $Global:TxtOrg.Text=$cfg.Setup.Org; $Global:TxtServer.Text=$cfg.Setup.Server
-        $Global:TxtInstallPath.Text=$cfg.Setup.Install; $Global:TxtDomain.Text=$cfg.Setup.Domain
-        foreach ($k in $Global:Checks.Keys) {
-            if ($cfg.Options.PSObject.Properties.Name -contains $k) {
-                $Global:Checks[$k].Checked = [bool]$cfg.Options.$k
+
+        $cfg = Get-Content $Global:ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        Write-Log "===========================================" -Level INFO
+        Write-Log " KONFIGURATION WIRD GELADEN" -Level INFO
+        Write-Log "===========================================" -Level INFO
+        if ($cfg.Saved) { Write-Log ("  Gespeichert am: " + $cfg.Saved) -Level INFO }
+
+        # === ISO ===
+        if ($cfg.ISO) {
+            $Global:TxtISO.Text          = "$($cfg.ISO.File)"
+            $Global:RbISOFile.Checked    = [bool]$cfg.ISO.UseFile
+            $Global:RbISOMounted.Checked = -not [bool]$cfg.ISO.UseFile
+        }
+
+        # === Setup ===
+        if ($cfg.Setup) {
+            $Global:TxtOrg.Text         = "$($cfg.Setup.Org)"
+            $Global:TxtServer.Text      = "$($cfg.Setup.Server)"
+            $Global:TxtInstallPath.Text = "$($cfg.Setup.Install)"
+            $Global:TxtDomain.Text      = "$($cfg.Setup.Domain)"
+        }
+
+        # === Installations-Optionen ===
+        if ($cfg.Options) {
+            foreach ($k in $Global:Checks.Keys) {
+                if ($cfg.Options.PSObject.Properties.Name -contains $k) {
+                    $Global:Checks[$k].Checked = [bool]$cfg.Options.$k
+                }
             }
         }
+
+        # === Voraussetzungen ===
         if ($cfg.Prereq) {
-            $Global:ChkInstDotNet.Checked=[bool]$cfg.Prereq.DotNet
-            $Global:ChkInstVC2012.Checked=[bool]$cfg.Prereq.VC2012
-            $Global:ChkInstVC2013.Checked=[bool]$cfg.Prereq.VC2013
-            $Global:ChkInstURLRewrite.Checked=[bool]$cfg.Prereq.URL
-            $Global:ChkInstUCMA.Checked=[bool]$cfg.Prereq.UCMA
-            $Global:ChkInstFeatures.Checked=[bool]$cfg.Prereq.Features
-            $Global:ChkDisableSMB1.Checked=[bool]$cfg.Prereq.SMB1
-            $Global:ChkSetPagefile.Checked=[bool]$cfg.Prereq.Pagefile
-            $Global:ChkSetHighPerf.Checked=[bool]$cfg.Prereq.HighPerf
+            $Global:ChkInstDotNet.Checked     = [bool]$cfg.Prereq.DotNet
+            $Global:ChkInstVC2012.Checked     = [bool]$cfg.Prereq.VC2012
+            $Global:ChkInstVC2013.Checked     = [bool]$cfg.Prereq.VC2013
+            $Global:ChkInstURLRewrite.Checked = [bool]$cfg.Prereq.URL
+            $Global:ChkInstUCMA.Checked       = [bool]$cfg.Prereq.UCMA
+            $Global:ChkInstFeatures.Checked   = [bool]$cfg.Prereq.Features
+            $Global:ChkDisableSMB1.Checked    = [bool]$cfg.Prereq.SMB1
+            $Global:ChkSetPagefile.Checked    = [bool]$cfg.Prereq.Pagefile
+            $Global:ChkSetHighPerf.Checked    = [bool]$cfg.Prereq.HighPerf
         }
-        Write-Log "Konfig geladen" -Level SUCCESS
-    } catch { Write-Log ("Lade-Fehler: " + $_) -Level ERROR }
+
+        # === AD-Vorbereitung ===
+        if ($cfg.ADPrep) {
+            $Global:ChkPrepSchema.Checked  = [bool]$cfg.ADPrep.PrepSchema
+            $Global:ChkPrepAD.Checked      = [bool]$cfg.ADPrep.PrepAD
+            $Global:ChkPrepDom.Checked     = [bool]$cfg.ADPrep.PrepDom
+            $Global:RbAllDomains.Checked   = [bool]$cfg.ADPrep.AllDomains
+            $Global:RbSingleDomain.Checked = [bool]$cfg.ADPrep.SingleDom
+            try { $Global:NumWaitMin.Value = [int]$cfg.ADPrep.WaitMin } catch {}
+            # Domain in ComboBox auswaehlen wenn vorhanden
+            if ($cfg.ADPrep.DomainName) {
+                for ($i = 0; $i -lt $Global:CmbDomainList.Items.Count; $i++) {
+                    if ($Global:CmbDomainList.Items[$i] -eq $cfg.ADPrep.DomainName) {
+                        $Global:CmbDomainList.SelectedIndex = $i
+                        break
+                    }
+                }
+            }
+        }
+
+        # === Antispam ===
+        if ($cfg.AntiSpam) {
+            try { $Global:NumSCLReject.Value = [int]$cfg.AntiSpam.SCLReject } catch {}
+            try { $Global:NumSCLDelete.Value = [int]$cfg.AntiSpam.SCLDelete } catch {}
+            $Global:ChkContent.Checked  = [bool]$cfg.AntiSpam.Content
+            $Global:ChkSenderID.Checked = [bool]$cfg.AntiSpam.SenderID
+            $Global:ChkSendFil.Checked  = [bool]$cfg.AntiSpam.SenderFilter
+            $Global:ChkRecipFil.Checked = [bool]$cfg.AntiSpam.RecipientFilter
+            $Global:ChkSendRep.Checked  = [bool]$cfg.AntiSpam.SenderReputation
+        }
+
+        # === DB-Generator ===
+        if ($cfg.DBGen) {
+            $Global:TxtDBPrefix.Text = "$($cfg.DBGen.Prefix)"
+            $Global:TxtDBStart.Text  = "$($cfg.DBGen.Start)"
+            try { $Global:NumDBCount.Value = [int]$cfg.DBGen.Count } catch {}
+            $Global:TxtDBServer.Text = "$($cfg.DBGen.Server)"
+            $Global:TxtDBBase.Text   = "$($cfg.DBGen.DBBase)"
+            $Global:TxtLogBase.Text  = "$($cfg.DBGen.LogBase)"
+        }
+
+        # === DBs in DataGridView ===
+        $Global:DgvDB.Rows.Clear()
+        $dbCount = 0
+        if ($cfg.DBs) {
+            foreach ($db in $cfg.DBs) {
+                if ($db -and $db.Name) {
+                    $Global:DgvDB.Rows.Add(
+                        "$($db.Name)",
+                        "$($db.Server)",
+                        "$($db.EDB)",
+                        "$($db.Log)"
+                    ) | Out-Null
+                    $dbCount++
+                }
+            }
+        }
+
+        # === DAG ===
+        $dagMemberCount = 0
+        if ($cfg.DAG) {
+            $Global:TxtDAGName.Text      = "$($cfg.DAG.Name)"
+            $Global:TxtWitness.Text      = "$($cfg.DAG.Witness)"
+            $Global:TxtWitnessDir.Text   = "$($cfg.DAG.WitnessDir)"
+            $Global:TxtDAGIP.Text        = "$($cfg.DAG.IP)"
+            $Global:ChkIPlessDAG.Checked = [bool]$cfg.DAG.IPless
+
+            if ($cfg.DAG.Members) {
+                $memberArr = @($cfg.DAG.Members | Where-Object { $_ })
+                $Global:TxtMembers.Text = ($memberArr -join "`r`n")
+                $dagMemberCount = $memberArr.Count
+            } else {
+                $Global:TxtMembers.Text = ""
+            }
+        }
+
+        # === TLS ===
+        if ($cfg.TLS) {
+            $Global:ChkConfirmTLS.Checked = [bool]$cfg.TLS.Confirmed
+        }
+
+        Write-Log "  Geladen:" -Level SUCCESS
+        Write-Log ("    - ISO: " + $Global:TxtISO.Text) -Level INFO
+        Write-Log ("    - Org: " + $Global:TxtOrg.Text) -Level INFO
+        Write-Log ("    - Datenbanken: " + $dbCount) -Level INFO
+        Write-Log ("    - DAG: " + $Global:TxtDAGName.Text + " (" + $dagMemberCount + " Mitglieder)") -Level INFO
+        Write-Log "===========================================" -Level SUCCESS
+
+        [System.Windows.Forms.MessageBox]::Show(
+            "Konfiguration geladen!`r`n`r`n" +
+            "Datenbanken: $dbCount`r`n" +
+            "DAG-Mitglieder: $dagMemberCount`r`n`r`n" +
+            "Bitte alle Tabs durchgehen um Werte zu pruefen.",
+            "Laden erfolgreich",'OK','Information')
+    }
+    catch {
+        Write-Log ("Lade-Fehler: " + $_) -Level ERROR
+        [System.Windows.Forms.MessageBox]::Show(("Fehler beim Laden: " + $_),"Fehler",'OK','Error')
+    }
 })
+
 $TabRun.Controls.Add($BtnLoadCfg)
 
 $BtnClearLog = New-Button "Log leeren" 390 470 130 32 $Global:ColorWarning
@@ -1867,12 +3113,32 @@ $BtnStartAll.Add_Click({
         }
 
         # SCHRITT 3: Exchange installieren
-        if ($Global:Checks["InstallExchange"].Checked -and $ExchangeSetupPath) {
+                if ($Global:Checks["InstallExchange"].Checked -and $ExchangeSetupPath) {
             Write-Log "--- SCHRITT 3: Exchange Setup ---" -Level INFO
-            if (-not (Install-ExchangeServer -SetupPath $ExchangeSetupPath -OrgName $Global:TxtOrg.Text) -and -not $continueOnError) {
-                Write-Log "Abbruch" -Level ERROR; return
+
+            # Rollen zusammenbauen
+            $selectedRoles = @()
+            if ($Global:ChkRoleMailbox.Checked) { $selectedRoles += "Mailbox" }
+            if ($Global:ChkRoleEdge.Checked)    { $selectedRoles += "EdgeTransport" }
+            $rolesStr = $selectedRoles -join ','
+
+            if (-not $rolesStr) {
+                Write-Log "Keine Rolle ausgewaehlt - Setup uebersprungen" -Level ERROR
+                if (-not $continueOnError) { return }
+            } else {
+                $instOK = Install-ExchangeServer `
+                            -SetupPath $ExchangeSetupPath `
+                            -OrgName   $Global:TxtOrg.Text `
+                            -Roles     $rolesStr `
+                            -IncludeManagementTools $Global:ChkRoleMgmt.Checked `
+                            -AcceptDiagnosticData   $Global:ChkDiagData.Checked
+                if (-not $instOK -and -not $continueOnError) {
+                    Write-Log "Abbruch wegen Setup-Fehler" -Level ERROR
+                    return
+                }
             }
         }
+
 
         # SCHRITT 4: Antispam-Agenten
         if ($Global:Checks["InstallAntispam"].Checked) {
