@@ -64,18 +64,18 @@ Die erste Version (1.0) des Exchange-Deployment-Automation-Tools bietet:
 
 Diese Version beinhaltet umfangreiche Dokumentation:
 
-### Benutzer-Guides
-- ✅ **Quick-Start-Guide** - Schneller Einstieg in 5 Minuten
-- ✅ **Detaillierte Installation** - Vollständiger Leitfaden mit allen Phasen
-- ✅ **Konfigurationsoptionen** - Alle verfügbaren Parameter
-- ✅ **FAQ** - Häufig gestellte Fragen
-- ✅ **Troubleshooting** - Lösungen für häufige Probleme
-- ✅ **Best Practices** - Empfehlungen für Production
+### Benutzer-Guides (im GitHub Wiki)
+- ✅ **[Quick-Start-Guide](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Quick-Start-Guide)** - Schneller Einstieg in 5 Minuten
+- ✅ **[Detaillierte Installation](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Detaillierte-Installation)** - Kompletter Installationsleitfaden mit allen Phasen
+- ✅ **[Konfigurationsoptionen](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Konfigurationsoptionen)** - Alle verfügbaren Parameter
+- ✅ **[FAQ](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/FAQ)** - Häufig gestellte Fragen
+- ✅ **[Troubleshooting](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Troubleshooting)** - Lösungen für häufige Probleme
+- ✅ **[Best Practices](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Best-Practices)** - Empfehlungen für Production
 
 ### Weitere Dokumentation
 - ✅ **README.md** - Ausführliche Projektübersicht
 - ✅ **CHANGELOG.md** - Versionshistorie
-- ✅ **docs/README.md** - Dokumentations-Übersicht
+- ✅ **GitHub Wiki** - Dokumentations-Übersicht
 - ✅ **LICENSE** - MIT-Lizenz
 
 ---
@@ -199,14 +199,14 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 ```
 
 ### Detaillierte Anleitung
-Siehe **[Quick-Start-Guide](docs/Quick-Start-Guide.md)**
+Siehe **[Quick-Start-Guide](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Quick-Start-Guide)**
 
 ---
 
 ## 📞 Support & Community
 
 ### Hilfe erhalten
-- 📖 **Wiki**: [Dokumentation & Guides](docs/)
+- 📖 **Wiki**: [Dokumentation & Guides](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki)
 - 🐛 **Issues**: [Bug-Reports & Feature-Requests](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/issues)
 - 💬 **Discussions**: [Fragen & Austausch](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/discussions)
 
@@ -337,7 +337,7 @@ Dank an alle Tester und Contributors, die v1.0 möglich gemacht haben!
 
 ## 🚀 Ready to deploy?
 
-👉 **[Starten Sie mit Quick-Start-Guide →](docs/Quick-Start-Guide.md)**
+👉 **[Starten Sie mit Quick-Start-Guide →](https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki/Quick-Start-Guide)**
 
 ---
 
