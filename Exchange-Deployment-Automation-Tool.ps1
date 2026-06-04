@@ -1519,7 +1519,6 @@ $BtnRefreshPrereq.Add_Click({
 
         $okText = if ($Global:CurrentLang -eq "DE") { "OK - bereits installiert" } else { "OK - already installed" }
         $missText = if ($Global:CurrentLang -eq "DE") { "FEHLT - wird installiert" } else { "MISSING - will be installed" }
-        $alreadyText = if ($Global:CurrentLang -eq "DE") { "BEREITS INSTALLIERT" } else { "ALREADY INSTALLED" }
 
         $Global:LblDotNet.Text = if ($st.DotNet48) { $okText } else { $missText }
         $Global:LblDotNet.ForeColor = if ($st.DotNet48) { $Global:ColorAccent2 } else { $Global:ColorWarning }
@@ -2291,7 +2290,7 @@ $BtnCreateDAGNow.Add_Click({
                 Write-Log "  UNC-Pfad existiert bereits!" -Level SUCCESS
                 $dirCreated = $true
             } else {
-                $newDir = New-Item -Path $uncPath -ItemType Directory -Force -ErrorAction Stop
+                New-Item -Path $uncPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
                 Write-Log "  UNC-Pfad erstellt!" -Level SUCCESS
                 $dirCreated = $true
             }
@@ -2702,13 +2701,11 @@ $BtnOpenSetupLog.Add_Click({
         )
 
         $logFile  = $null
-        $logDir   = $null
 
         # 2. Existierendes Setup-Log finden
         foreach ($p in $candidatePaths) {
             if (Test-Path $p -ErrorAction SilentlyContinue) {
                 $logFile = $p
-                $logDir  = Split-Path $p -Parent
                 Write-Log ("Setup-Log gefunden: " + $p) -Level INFO
                 break
             }
