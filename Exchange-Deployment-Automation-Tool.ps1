@@ -43,10 +43,158 @@ Write-Host "==================================================" -ForegroundColor
 Start-Sleep -Milliseconds 600
 
 <#
-.SYNOPSIS Microsoft Exchange SE - All-in-One Konfigurations-Center v3.6
-.DESCRIPTION Mit DE/EN-Sprachauswahl, Auto-Elevation, Splash + komplettem Workflow
-.AUTHOR Rocco Ammon, SVA
-.VERSION 3.6
+.SYNOPSIS
+    Exchange-Deployment-Automation-Tool – Vollautomatisierte Installation von Microsoft Exchange Server
+
+.DESCRIPTION
+    Umfassendes PowerShell-Skript zur VOLLAUTOMATISIERTEN Installation und Konfiguration von 
+    Microsoft Exchange Server 2016, 2019 und Standard Edition (SE).
+    
+    Das Skript automatisiert den gesamten Deployment-Workflow in einer kontinuierlichen Ausführung:
+    - Systemvalidierung (OS, RAM, Speicher, .NET Framework, Netzwerk)
+    - Active Directory Vorbereitung (ForestPrep, DomainPrep)
+    - Automatische Installation aller Voraussetzungen (.NET, KB-Updates, VC++ Runtime)
+    - Unbeaufsichtigtes Exchange Setup mit automatischer Antwortdatei-Generierung
+    - Post-Installation Konfiguration (Services, Zertifikate, Koexistenz)
+
+.FEATURES
+    ✓ Vollautomatisierung – Keine manuelle Intervention erforderlich
+    ✓ Multi-Version Support – Exchange 2016, 2019, Standard Edition
+    ✓ Enterprise-ready – ForestPrep, DomainPrep, DAG-Vorbereitung
+    ✓ Robuste Fehlerbehandlung – Umfassende Validierung & Error-Handling
+    ✓ Detailliertes Logging – Alle Operationen dokumentiert in C:\ScriptLog\
+    ✓ Mehrsprachig – Deutsch (DE) & Englisch (EN) mit Auto-Detection
+    ✓ Admin-Auto-Elevation – Automatische UAC-Eskalation mit RunAs
+    ✓ Production-Ready – Getestet in Lab, Test und Production
+
+.ANWENDUNGSFÄLLE
+    • Laborumgebungen – Schnelle Test-Deployments
+    • Testumgebungen – Reproduzierbare Konfigurationen
+    • Production Deployments – Enterprise-Grade Automation
+    • VM-Provisioning – Automatisierte Skalierung
+    • Migrationen – Schnelle Koexistenz-Setup
+    • physische Server – Zuverlässige Installations-Automation
+
+.SYSTEMVORAUSSETZUNGEN
+    OS:             Windows Server 2016 oder höher
+    PowerShell:     5.1+
+    RAM:            Minimum 8 GB (empfohlen: 16+ GB)
+    CPU:            Minimum 4 vCPU (empfohlen: 8+)
+    Speicher:       Minimum 200 GB freier Speicherplatz (empfohlen: 300+ GB)
+    Admin-Rechte:   Erforderlich (Auto-Elevation)
+    .NET Framework: 4.7.2+ (wird automatisch installiert)
+    Netzwerk:       AD-Verbindung, DNS, Internetzugang
+
+.PARAMETER
+    -Elevated
+        Interner Parameter für Auto-Elevation (automatisch gesetzt)
+
+    -ForceLang
+        Erzwingt eine bestimmte Sprache: "de" für Deutsch, "en" für English
+        Standard: Auto-Detection basierend auf Systemsprache
+
+.BEISPIELE
+    # Standardausführung (Auto-Elevation mit Deutsch/English Auto-Detection)
+    .\Exchange-Deployment-Automation-Tool.ps1
+
+    # Erzwinge Deutsch
+    .\Exchange-Deployment-Automation-Tool.ps1 -ForceLang "de"
+
+    # Erzwinge English
+    .\Exchange-Deployment-Automation-Tool.ps1 -ForceLang "en"
+
+    # Mit Rechtsklick "Mit PowerShell ausführen" (empfohlen)
+    # -> Automatische Admin-Elevation + Sprach-Auto-Detection
+
+.WORKFLOW
+    1. SYSTEMVALIDIERUNG
+       - OS-Version Prüfung
+       - RAM/CPU/HDD Validierung
+       - .NET Framework Check
+       - AD/DNS Verbindung
+       - Prerequisites Status
+
+    2. ACTIVE DIRECTORY VORBEREITUNG (Optional)
+       - ForestPrep (Schema-Erweiterung)
+       - DomainPrep (Security-Gruppen, Berechtigungen)
+       - Replikations-Warten
+       - Multi-Domain Support
+
+    3. VORAUSSETZUNGEN-INSTALLATION
+       - .NET Framework 4.7.2+
+       - Visual C++ Redistributables
+       - Windows KB-Updates
+       - Feature Installation (HTTP, IIS, etc.)
+
+    4. EXCHANGE SETUP
+       - Automatische Antwortdatei-Generierung
+       - Unbeaufsichtigtes Setup.exe
+       - Komponenten-Installation
+       - Installationsstatus Überwachung
+
+    5. POST-INSTALLATION KONFIGURATION
+       - Exchange Services Konfiguration
+       - SSL/TLS Zertifikate Setup
+       - Koexistenz mit älteren Versionen
+       - Erste Database Validierung
+
+.AUSGABE
+    • Interaktive Konsolen-Ausgabe mit farblicher Formatierung
+    • Detaillierte Log-Dateien: C:\ScriptLog\Exchange-Deployment-*.log
+    • Event-Log Integration: Application -> MSExchange*
+    • Validierungs-Reports nach jedem Schritt
+
+.FEHLERBEHANDLUNG
+    • Umfassende Try/Catch Blöcke
+    • Automatische Fehler-Logging
+    • Aussagekräftige Fehlermeldungen (DE/EN)
+    • Validierung nach kritischen Operationen
+    • Rollback-Möglichkeiten (wo anwendbar)
+
+.SICHERHEIT
+    ✓ Admin-Berechtigungen erforderlich
+    ✓ UAC-Eskalation automatisiert
+    ✓ Keine hartcodierten Passwörter
+    ✓ Sichere Fehlerbehandlung
+    ✓ Input-Validierung
+
+.LIZENZ
+    MIT License – Kostenlos, veränderbar, kommerziell nutzbar
+
+.AUTOR
+    Rocco Ammon (rocco@sva-system.de)
+    SVA System Vertrieb Alexander GmbH
+
+.VERSION
+    1.0 (Production Ready) – Juni 2026
+
+.REPOSITORY
+    https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool
+
+.WIKI
+    https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki
+
+.SUPPORT
+    Issues:      https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/issues
+    Discussions: https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/discussions
+    Dokumentation: https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/wiki
+
+.HINWEISE
+    • Zuerst in LAB/TEST testen!
+    • Vor Ausführung: Vollständiges BACKUP erstellen
+    • Windows Updates VOR der Ausführung durchführen
+    • Installationsmedium (ISO) bereitstellen
+    • Mindestens 60-90 Minuten Zeit einplanen
+    • Support-Kanal (Email/Chat) bereithalten
+
+.CHANGELOG
+    1.0 (2026-06-04)
+    - Initial Release
+    - Exchange 2016, 2019, SE Support
+    - ForestPrep/DomainPrep automatisiert
+    - Umfangreiche Dokumentation & Wiki
+    - Production-ready
+
 #>
 
 #region ============================ GLOBALE VARIABLEN ============================
