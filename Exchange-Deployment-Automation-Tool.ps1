@@ -166,7 +166,7 @@ Start-Sleep -Milliseconds 600
     SVA System Vertrieb Alexander GmbH
 
 .VERSION
-    1.0 (Production Ready) – Juni 2026
+    1.1 (Production Ready) – September 2026
 
 .REPOSITORY
     https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool
@@ -188,6 +188,11 @@ Start-Sleep -Milliseconds 600
     • Support-Kanal (Email/Chat) bereithalten
 
 .CHANGELOG
+    1.1 (2026-09-07)
+    - URL Rewrite Modul wird erst NACH der Windows-Feature-/Rolleninstallation installiert
+    - Installationsreihenfolge der Prerequisites korrigiert (Features vor URL Rewrite)
+    - Schritt-Nummerierung der Prerequisite-Installation aktualisiert
+
     1.0 (2026-06-04)
     - Initial Release
     - Exchange 2016, 2019, SE Support
@@ -718,21 +723,8 @@ function Install-PrerequisiteSoftware {
             } catch { Write-Log ("  Error: " + $_) -Level ERROR }
         }
     }
-    if ($InstallURLRewrite) {
-        if (Test-URLRewrite) { Write-Log "[4/8] URL Rewrite already installed" -Level SUCCESS }
-        else {
-            Write-Log "[4/8] Installing URL Rewrite 2.1..." -Level INFO
-            try {
-                $url = "https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi"
-                $file = Join-Path $tempDir "rewrite_2.1_x64.msi"
-                if (-not (Test-Path $file)) { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing }
-                Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$file`" /quiet /norestart" -Wait
-                Write-Log "  URL Rewrite installed" -Level SUCCESS
-            } catch { Write-Log ("  Error: " + $_) -Level ERROR }
-        }
-    }
     if ($InstallUCMA) {
-        if (Test-UCMA) { Write-Log "[5/8] UCMA 4.0 already installed" -Level SUCCESS }
+        if (Test-UCMA) { Write-Log "[4/8] UCMA 4.0 already installed" -Level SUCCESS }
         else {
             Write-Log "[5/8] Installing UCMA 4.0..." -Level INFO
             $ucmaInst = $null
@@ -749,7 +741,7 @@ function Install-PrerequisiteSoftware {
         }
     }
     if ($InstallFeatures) {
-        Write-Log "[6/8] Checking Windows features..." -Level INFO
+        Write-Log "[5/8] Checking Windows features..." -Level INFO
         $status = Get-PrerequisiteStatus
         if ($status.FeaturesOK) { Write-Log "  All features already installed" -Level SUCCESS }
         else {
@@ -783,6 +775,19 @@ function Install-PrerequisiteSoftware {
                     if ($jr.RestartNeeded -eq "Yes") { Write-Log "  >>> RESTART REQUIRED <<<" -Level WARNING }
                 }
                 Remove-Job $job -Force -ErrorAction SilentlyContinue
+            } catch { Write-Log ("  Error: " + $_) -Level ERROR }
+        }
+    }
+    if ($InstallURLRewrite) {
+        if (Test-URLRewrite) { Write-Log "[6/8] URL Rewrite already installed" -Level SUCCESS }
+        else {
+            Write-Log "[6/8] Installing URL Rewrite 2.1..." -Level INFO
+            try {
+                $url = "https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi"
+                $file = Join-Path $tempDir "rewrite_2.1_x64.msi"
+                if (-not (Test-Path $file)) { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing }
+                Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$file`" /quiet /norestart" -Wait
+                Write-Log "  URL Rewrite installed" -Level SUCCESS
             } catch { Write-Log ("  Error: " + $_) -Level ERROR }
         }
     }

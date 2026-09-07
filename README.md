@@ -3,9 +3,9 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://www.microsoft.com/de-de/powershell)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Status: Production](https://img.shields.io/badge/Status-Production-brightgreen)
-![Version: 1.0](https://img.shields.io/badge/Version-1.0-blue)
+![Version: 1.1](https://img.shields.io/badge/Version-1.1-blue)
 
-**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen.**
+**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul).**
 
 ---
 
@@ -258,4 +258,4 @@ Beiträge sind willkommen! Bitte erstelle einen Pull Request oder ein Issue für
 
 ---
 
-**Zuletzt aktualisiert:** Juni 2026 | **Version:** 1.0
+**Zuletzt aktualisiert:** September 2026 | **Version:** 1.1

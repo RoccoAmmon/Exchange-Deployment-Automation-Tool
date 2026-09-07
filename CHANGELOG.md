@@ -7,6 +7,17 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
+## [1.1] - 2026-09-07
+
+### 🐛 Behoben
+- **Installationsreihenfolge der Prerequisites korrigiert**: Das IIS URL Rewrite Modul 2.1 wird jetzt erst **nach** der Windows-Feature-/Rolleninstallation installiert (vorher wurde es zu früh installiert)
+- Schritt-Nummerierung der Prerequisite-Installation entsprechend aktualisiert
+
+### 🔧 Geändert
+- Reihenfolge in `Install-PrerequisiteSoftware`: Features/Rollen → URL Rewrite → SMB1 → Power Plan
+
+---
+
 ## [1.0] - 2026-06-04
 
 ### ✨ Hinzugefügt
@@ -110,4 +121,4 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
-**Zuletzt aktualisiert**: 4. Juni 2026
+**Zuletzt aktualisiert**: 7. September 2026
