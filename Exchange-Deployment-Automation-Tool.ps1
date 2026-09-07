@@ -253,7 +253,7 @@ $Global:FontMono    = New-Object System.Drawing.Font("Consolas", 9)
 #region ============================ SPRACHEN / I18N ============================
 $Global:Texts = @{
     DE = @{
-        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v3.6  |  Rocco Ammon, SVA"
+        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.1  |  Rocco Ammon, SVA"
         TabPrereq="  Voraussetzungen  "; TabAD="  AD-Vorbereitung  "; TabInstall="  Installation  "
         TabSec="  Sicherheit / TLS  "; TabSpam="  Antispam  "; TabDB="  Datenbanken  "
         TabDAG="  DAG  "; TabRun="  Ausfuehrung und Log  "
@@ -319,7 +319,7 @@ $Global:Texts = @{
         Filt_Reputation="Sender-Reputation aktivieren"
     }
     EN = @{
-        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v3.6  |  Rocco Ammon, SVA"
+        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.1  |  Rocco Ammon, SVA"
         TabPrereq="  Prerequisites  "; TabAD="  AD Preparation  "; TabInstall="  Installation  "
         TabSec="  Security / TLS  "; TabSpam="  AntiSpam  "; TabDB="  Databases  "
         TabDAG="  DAG  "; TabRun="  Execution and Log  "
@@ -2497,7 +2497,7 @@ $BtnSaveCfg.Add_Click({
         $dagMembers = @($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
         $cfg = @{
-            Version = "3.6"
+            Version = "1.1"
             Language = $Global:CurrentLang
             Saved = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
             ISO = @{
@@ -3187,7 +3187,7 @@ $Form.Add_Shown({
 
 #region ============================ GUI START ============================
 try {
-    Write-Log ("Microsoft Exchange SE Configuration Center v3.6 started") -Level INFO
+    Write-Log ("Microsoft Exchange SE Configuration Center v1.1 started") -Level INFO
     Write-Log ("Language: " + $Global:CurrentLang) -Level INFO
     Write-Log ("Log file: " + $Global:LogFile) -Level INFO
     [void]$Form.ShowDialog()
