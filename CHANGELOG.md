@@ -7,6 +7,22 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
+## [1.2] - 2026-09-08
+
+### ✨ Hinzugefügt
+- **AntiSpam-Steuerung**: Jeder AntiSpam-Agent (Content, Sender, Recipient, Sender-Reputation) kann einzeln aktiviert/deaktiviert werden
+- **Sender-ID-Agent dauerhaft deaktiviert**: Der veraltete Sender-ID-Filter wird immer ausgeschaltet (Checkbox ausgegraut, explizite Deaktivierung in `Set-AntiSpamConfiguration`)
+- **DB-Generator mit editierbarer Vorschau**: EDB- und Log-Pfade können pro Datenbank direkt in der Vorschau-Tabelle angepasst werden
+
+### 🔧 Geändert
+- Deaktivierte AntiSpam-Agents werden jetzt **explizit ausgeschaltet** (`Set-*Config -Enabled $false`), statt unverändert zu bleiben
+- Sender-ID-Filter ist in allen Ausführungspfaden (GUI, automatischer Durchlauf, Config-Laden) deaktiviert
+
+### 🐛 Behoben
+- **DivideByZeroException** beim Klick auf „Konfiguration generieren“ im DB-Generator (Reste der Round-Robin-Logik entfernt)
+
+---
+
 ## [1.1] - 2026-09-07
 
 ### 🐛 Behoben
