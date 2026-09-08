@@ -65,6 +65,8 @@ Start-Sleep -Milliseconds 600
     ✓ Detailliertes Logging – Alle Operationen dokumentiert in C:\ScriptLog\
     ✓ Mehrsprachig – Deutsch (DE) & Englisch (EN) mit Auto-Detection
     ✓ Admin-Auto-Elevation – Automatische UAC-Eskalation mit RunAs
+    ✓ AntiSpam-Steuerung – Agents einzeln aktivierbar/deaktivierbar (Sender-ID immer aus)
+    ✓ DB-Generator – Postfach-Datenbanken mit editierbarer Vorschau (EDB-/Log-Pfade pro Zeile)
     ✓ Production-Ready – Getestet in Lab, Test und Production
 
 .ANWENDUNGSFÄLLE
@@ -166,7 +168,7 @@ Start-Sleep -Milliseconds 600
     SVA System Vertrieb Alexander GmbH
 
 .VERSION
-    1.0 (Production Ready) – Juni 2026
+    1.2 (Production Ready) – September 2026
 
 .REPOSITORY
     https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool
@@ -188,6 +190,17 @@ Start-Sleep -Milliseconds 600
     • Support-Kanal (Email/Chat) bereithalten
 
 .CHANGELOG
+    1.2 (2026-09-08)
+    - Sender-ID-Agent wird immer deaktiviert (veraltet, Checkbox ausgegraut)
+    - AntiSpam-Agents werden bei deaktiviertem Haken explizit deaktiviert
+    - DB-Generator: Pfade direkt in der Vorschau editierbar
+    - Bugfix: DivideByZeroException beim Generieren der DB-Konfiguration behoben
+
+    1.1 (2026-09-07)
+    - URL Rewrite Modul wird erst NACH der Windows-Feature-/Rolleninstallation installiert
+    - Installationsreihenfolge der Prerequisites korrigiert (Features vor URL Rewrite)
+    - Schritt-Nummerierung der Prerequisite-Installation aktualisiert
+
     1.0 (2026-06-04)
     - Initial Release
     - Exchange 2016, 2019, SE Support
@@ -248,7 +261,7 @@ $Global:FontMono    = New-Object System.Drawing.Font("Consolas", 9)
 #region ============================ SPRACHEN / I18N ============================
 $Global:Texts = @{
     DE = @{
-        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v3.6  |  Rocco Ammon, SVA"
+        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.2  |  Rocco Ammon, SVA"
         TabPrereq="  Voraussetzungen  "; TabAD="  AD-Vorbereitung  "; TabInstall="  Installation  "
         TabSec="  Sicherheit / TLS  "; TabSpam="  Antispam  "; TabDB="  Datenbanken  "
         TabDAG="  DAG  "; TabRun="  Ausfuehrung und Log  "
@@ -309,12 +322,12 @@ $Global:Texts = @{
         Opt_TLS="TLS-Hardening anwenden"; Opt_DBs="Postfach-Datenbanken anlegen"
         Opt_DAG="DAG erstellen + Mitglieder"; Opt_Dismount="ISO am Ende automatisch unmounten"
         Opt_Admin="Strikte Admin-Pruefung"; Opt_Continue="Bei Fehlern weiter machen"
-        Filt_Content="Content-Filter aktivieren"; Filt_SenderID="Sender-ID-Filter aktivieren"
+        Filt_Content="Content-Filter aktivieren"; Filt_SenderID="Sender-ID-Filter aktivieren (deaktiviert, veraltet)"
         Filt_Sender="Sender-Filter aktivieren"; Filt_Recip="Recipient-Filter aktivieren"
         Filt_Reputation="Sender-Reputation aktivieren"
     }
     EN = @{
-        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v3.6  |  Rocco Ammon, SVA"
+        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.2  |  Rocco Ammon, SVA"
         TabPrereq="  Prerequisites  "; TabAD="  AD Preparation  "; TabInstall="  Installation  "
         TabSec="  Security / TLS  "; TabSpam="  AntiSpam  "; TabDB="  Databases  "
         TabDAG="  DAG  "; TabRun="  Execution and Log  "
@@ -375,7 +388,7 @@ $Global:Texts = @{
         Opt_TLS="Apply TLS hardening"; Opt_DBs="Create mailbox databases"
         Opt_DAG="Create DAG + members"; Opt_Dismount="Dismount ISO at end automatically"
         Opt_Admin="Strict admin check"; Opt_Continue="Continue on errors"
-        Filt_Content="Enable Content Filter"; Filt_SenderID="Enable Sender-ID Filter"
+        Filt_Content="Enable Content Filter"; Filt_SenderID="Enable Sender-ID Filter (deaktiviert, veraltet)"
         Filt_Sender="Enable Sender Filter"; Filt_Recip="Enable Recipient Filter"
         Filt_Reputation="Enable Sender Reputation"
     }
@@ -718,21 +731,8 @@ function Install-PrerequisiteSoftware {
             } catch { Write-Log ("  Error: " + $_) -Level ERROR }
         }
     }
-    if ($InstallURLRewrite) {
-        if (Test-URLRewrite) { Write-Log "[4/8] URL Rewrite already installed" -Level SUCCESS }
-        else {
-            Write-Log "[4/8] Installing URL Rewrite 2.1..." -Level INFO
-            try {
-                $url = "https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi"
-                $file = Join-Path $tempDir "rewrite_2.1_x64.msi"
-                if (-not (Test-Path $file)) { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing }
-                Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$file`" /quiet /norestart" -Wait
-                Write-Log "  URL Rewrite installed" -Level SUCCESS
-            } catch { Write-Log ("  Error: " + $_) -Level ERROR }
-        }
-    }
     if ($InstallUCMA) {
-        if (Test-UCMA) { Write-Log "[5/8] UCMA 4.0 already installed" -Level SUCCESS }
+        if (Test-UCMA) { Write-Log "[4/8] UCMA 4.0 already installed" -Level SUCCESS }
         else {
             Write-Log "[5/8] Installing UCMA 4.0..." -Level INFO
             $ucmaInst = $null
@@ -749,7 +749,7 @@ function Install-PrerequisiteSoftware {
         }
     }
     if ($InstallFeatures) {
-        Write-Log "[6/8] Checking Windows features..." -Level INFO
+        Write-Log "[5/8] Checking Windows features..." -Level INFO
         $status = Get-PrerequisiteStatus
         if ($status.FeaturesOK) { Write-Log "  All features already installed" -Level SUCCESS }
         else {
@@ -783,6 +783,19 @@ function Install-PrerequisiteSoftware {
                     if ($jr.RestartNeeded -eq "Yes") { Write-Log "  >>> RESTART REQUIRED <<<" -Level WARNING }
                 }
                 Remove-Job $job -Force -ErrorAction SilentlyContinue
+            } catch { Write-Log ("  Error: " + $_) -Level ERROR }
+        }
+    }
+    if ($InstallURLRewrite) {
+        if (Test-URLRewrite) { Write-Log "[6/8] URL Rewrite already installed" -Level SUCCESS }
+        else {
+            Write-Log "[6/8] Installing URL Rewrite 2.1..." -Level INFO
+            try {
+                $url = "https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi"
+                $file = Join-Path $tempDir "rewrite_2.1_x64.msi"
+                if (-not (Test-Path $file)) { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing }
+                Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$file`" /quiet /norestart" -Wait
+                Write-Log "  URL Rewrite installed" -Level SUCCESS
             } catch { Write-Log ("  Error: " + $_) -Level ERROR }
         }
     }
@@ -1187,7 +1200,7 @@ function Install-AntiSpamAgents {
 function Set-AntiSpamConfiguration {
     param(
         [int]$SCLRejectThreshold=7,[int]$SCLDeleteThreshold=9,
-        [bool]$EnableContent=$true,[bool]$EnableSenderID=$true,
+        [bool]$EnableContent=$true,[bool]$EnableSenderID=$false,
         [bool]$EnableSenderFilter=$true,[bool]$EnableRecipientFilter=$true,
         [bool]$EnableSenderReputation=$true
     )
@@ -1200,11 +1213,15 @@ function Set-AntiSpamConfiguration {
             Set-ContentFilterConfig -Enabled $true -RejectionResponse "Spam rejected." `
                 -SCLRejectEnabled $true -SCLRejectThreshold $SCLRejectThreshold `
                 -SCLDeleteEnabled $true -SCLDeleteThreshold $SCLDeleteThreshold
-        }
-        if ($EnableSenderID)         { Set-SenderIDConfig -Enabled $true -SpoofedDomainAction Reject }
-        if ($EnableSenderFilter)     { Set-SenderFilterConfig -Enabled $true -BlankSenderBlockingEnabled $true }
-        if ($EnableRecipientFilter)  { Set-RecipientFilterConfig -Enabled $true -RecipientValidationEnabled $true }
+        } else { Set-ContentFilterConfig -Enabled $false }
+        if ($EnableSenderID) { Set-SenderIDConfig -Enabled $true -SpoofedDomainAction Reject }
+        else { Set-SenderIDConfig -Enabled $false }
+        if ($EnableSenderFilter) { Set-SenderFilterConfig -Enabled $true -BlankSenderBlockingEnabled $true }
+        else { Set-SenderFilterConfig -Enabled $false }
+        if ($EnableRecipientFilter) { Set-RecipientFilterConfig -Enabled $true -RecipientValidationEnabled $true }
+        else { Set-RecipientFilterConfig -Enabled $false }
         if ($EnableSenderReputation) { Set-SenderReputationConfig -Enabled $true -SenderBlockingEnabled $true -SenderBlockingPeriod 24 }
+        else { Set-SenderReputationConfig -Enabled $false }
         Write-Log "AntiSpam configured" -Level SUCCESS
         return $true
     } catch { Write-Log ("Error: " + $_) -Level ERROR; return $false }
@@ -1927,7 +1944,8 @@ $GrpSCL.Controls.Add($Global:NumSCLDelete)
 $GrpFilt = New-GroupBox (Get-T "Spam_Filter") 10 130 1080 220
 $TabAntiSpam.Controls.Add($GrpFilt)
 $Global:ChkContent  = New-CheckBox (Get-T "Filt_Content") 20 30 350 $true
-$Global:ChkSenderID = New-CheckBox (Get-T "Filt_SenderID") 20 60 350 $true
+$Global:ChkSenderID = New-CheckBox (Get-T "Filt_SenderID") 20 60 350 $false
+$Global:ChkSenderID.Enabled = $false
 $Global:ChkSendFil  = New-CheckBox (Get-T "Filt_Sender") 20 90 350 $true
 $Global:ChkRecipFil = New-CheckBox (Get-T "Filt_Recip") 20 120 350 $true
 $Global:ChkSendRep  = New-CheckBox (Get-T "Filt_Reputation") 20 150 350 $true
@@ -2028,6 +2046,7 @@ $BtnCreateDBNow.Add_Click({
     }
 })
 $TabDB.Controls.Add($BtnCreateDBNow)
+
 #endregion
 
 #region ============================ TAB: DAG ============================
@@ -2492,7 +2511,7 @@ $BtnSaveCfg.Add_Click({
         $dagMembers = @($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
         $cfg = @{
-            Version = "3.6"
+            Version = "1.2"
             Language = $Global:CurrentLang
             Saved = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
             ISO = @{
@@ -2526,7 +2545,7 @@ $BtnSaveCfg.Add_Click({
             }
             AntiSpam = @{
                 SCLReject=[int]$Global:NumSCLReject.Value; SCLDelete=[int]$Global:NumSCLDelete.Value
-                Content=$Global:ChkContent.Checked; SenderID=$Global:ChkSenderID.Checked
+                Content=$Global:ChkContent.Checked; SenderID=$false
                 SenderFilter=$Global:ChkSendFil.Checked; RecipientFilter=$Global:ChkRecipFil.Checked
                 SenderReputation=$Global:ChkSendRep.Checked
             }
@@ -2632,7 +2651,7 @@ $BtnLoadCfg.Add_Click({
             try { $Global:NumSCLReject.Value=[int]$cfg.AntiSpam.SCLReject } catch {}
             try { $Global:NumSCLDelete.Value=[int]$cfg.AntiSpam.SCLDelete } catch {}
             $Global:ChkContent.Checked=[bool]$cfg.AntiSpam.Content
-            $Global:ChkSenderID.Checked=[bool]$cfg.AntiSpam.SenderID
+            $Global:ChkSenderID.Checked=$false
             $Global:ChkSendFil.Checked=[bool]$cfg.AntiSpam.SenderFilter
             $Global:ChkRecipFil.Checked=[bool]$cfg.AntiSpam.RecipientFilter
             $Global:ChkSendRep.Checked=[bool]$cfg.AntiSpam.SenderReputation
@@ -3182,7 +3201,7 @@ $Form.Add_Shown({
 
 #region ============================ GUI START ============================
 try {
-    Write-Log ("Microsoft Exchange SE Configuration Center v3.6 started") -Level INFO
+    Write-Log ("Microsoft Exchange SE Configuration Center v1.2 started") -Level INFO
     Write-Log ("Language: " + $Global:CurrentLang) -Level INFO
     Write-Log ("Log file: " + $Global:LogFile) -Level INFO
     [void]$Form.ShowDialog()
