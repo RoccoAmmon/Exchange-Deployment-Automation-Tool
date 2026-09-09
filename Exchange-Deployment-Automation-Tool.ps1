@@ -164,11 +164,10 @@ Start-Sleep -Milliseconds 600
     MIT License – Kostenlos, veränderbar, kommerziell nutzbar
 
 .AUTOR
-    Rocco Ammon (rocco@sva-system.de)
-    SVA System Vertrieb Alexander GmbH
+    Rocco Ammon
 
 .VERSION
-    1.2 (Production Ready) – September 2026
+    1.3 (Production Ready) – September 2026
 
 .REPOSITORY
     https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool
@@ -190,6 +189,10 @@ Start-Sleep -Milliseconds 600
     • Support-Kanal (Email/Chat) bereithalten
 
 .CHANGELOG
+    1.3 (2026-09-09)
+    - PrepareAD: OrganizationName wird nur bei Namensänderung übergeben (keine Upgrade-Warnung)
+    - GUI-Header: Autor/Version weiter links eingerückt
+
     1.2 (2026-09-08)
     - Sender-ID-Agent wird immer deaktiviert (veraltet, Checkbox ausgegraut)
     - AntiSpam-Agents werden bei deaktiviertem Haken explizit deaktiviert
@@ -261,7 +264,7 @@ $Global:FontMono    = New-Object System.Drawing.Font("Consolas", 9)
 #region ============================ SPRACHEN / I18N ============================
 $Global:Texts = @{
     DE = @{
-        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.2  |  Rocco Ammon, SVA"
+        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.3  |  Rocco Ammon"
         TabPrereq="  Voraussetzungen  "; TabAD="  AD-Vorbereitung  "; TabInstall="  Installation  "
         TabSec="  Sicherheit / TLS  "; TabSpam="  Antispam  "; TabDB="  Datenbanken  "
         TabDAG="  DAG  "; TabRun="  Ausfuehrung und Log  "
@@ -327,7 +330,7 @@ $Global:Texts = @{
         Filt_Reputation="Sender-Reputation aktivieren"
     }
     EN = @{
-        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.2  |  Rocco Ammon, SVA"
+        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.3  |  Rocco Ammon"
         TabPrereq="  Prerequisites  "; TabAD="  AD Preparation  "; TabInstall="  Installation  "
         TabSec="  Security / TLS  "; TabSpam="  AntiSpam  "; TabDB="  Databases  "
         TabDAG="  DAG  "; TabRun="  Execution and Log  "
@@ -1345,7 +1348,17 @@ function Invoke-ExchangePrepareStep {
         $arguments = @("/IAcceptExchangeServerLicenseTerms_DiagnosticDataOFF")
         switch ($Step) {
             "PrepareSchema"     { $arguments += "/PrepareSchema" }
-            "PrepareAD"         { $arguments += "/PrepareAD"; if ($OrgName) { $arguments += "/OrganizationName:$OrgName" } }
+            "PrepareAD"         {
+                $arguments += "/PrepareAD"
+                if ($OrgName) {
+                    $existingOrg = (Get-ExchangeSchemaInfo).ExchangeOrgName
+                    if ($existingOrg -and $existingOrg -ne "(not yet installed)" -and $existingOrg -eq $OrgName) {
+                        Write-Log ("OrganizationName unchanged ('" + $OrgName + "') - parameter omitted") -Level INFO
+                    } else {
+                        $arguments += "/OrganizationName:$OrgName"
+                    }
+                }
+            }
             "PrepareAllDomains" { $arguments += "/PrepareAllDomains" }
             "PrepareDomain"     { if ($DomainName) { $arguments += "/PrepareDomain:$DomainName" } else { $arguments += "/PrepareDomain" } }
         }
@@ -1480,9 +1493,10 @@ $LblSub = New-Object System.Windows.Forms.Label
 $LblSub.Text=(Get-T "AppSubtitle")
 $LblSub.Font=New-Object System.Drawing.Font("Segoe UI",10)
 $LblSub.ForeColor=[System.Drawing.Color]::White
-$LblSub.Location=New-Object System.Drawing.Point(($Global:FormWidth-105),22)
-$LblSub.Size=New-Object System.Drawing.Size(95,20)
-$LblSub.TextAlign="MiddleRight"; $LblSub.BackColor=[System.Drawing.Color]::Transparent
+$LblSub.Location=New-Object System.Drawing.Point(730,24)
+$LblSub.Size=New-Object System.Drawing.Size(180,20)
+$LblSub.AutoEllipsis=$true
+$LblSub.TextAlign="MiddleLeft"; $LblSub.BackColor=[System.Drawing.Color]::Transparent
 $HeaderPanel.Controls.Add($LblSub)
 $Form.Controls.Add($HeaderPanel)
 
@@ -2511,7 +2525,7 @@ $BtnSaveCfg.Add_Click({
         $dagMembers = @($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
         $cfg = @{
-            Version = "1.2"
+            Version = "1.3"
             Language = $Global:CurrentLang
             Saved = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
             ISO = @{
@@ -3201,7 +3215,7 @@ $Form.Add_Shown({
 
 #region ============================ GUI START ============================
 try {
-    Write-Log ("Microsoft Exchange SE Configuration Center v1.2 started") -Level INFO
+    Write-Log ("Microsoft Exchange SE Configuration Center v1.3 started") -Level INFO
     Write-Log ("Language: " + $Global:CurrentLang) -Level INFO
     Write-Log ("Log file: " + $Global:LogFile) -Level INFO
     [void]$Form.ShowDialog()

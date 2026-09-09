@@ -7,6 +7,14 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
+## [1.3] - 2026-09-09
+
+### 🔧 Geändert
+- **PrepareAD ohne unnötige Upgrade-Warnung**: `/OrganizationName:` wird bei `PrepareAD` nur noch übergeben, wenn sich der Organisationsname vom bereits vorhandenen unterscheidet – bei unverändertem Namen (Upgrade) entfällt der Parameter
+- **GUI-Header optimiert**: Autor und Versionsnummer werden weiter links (direkt hinter dem Titel) angezeigt statt ganz rechts
+
+---
+
 ## [1.2] - 2026-09-08
 
 ### ✨ Hinzugefügt
