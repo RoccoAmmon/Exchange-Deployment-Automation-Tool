@@ -243,6 +243,27 @@ $Global:PrereqStatusLoaded = $false
 $Global:FormWidth          = 1150
 $Global:FormHeight         = 820
 
+# Phasenmodell fuer die Setup-Fortschrittsanzeige (Exchange-Setup arbeitet 13 Hauptpunkte ab)
+$Global:SetupPhaseDefs = @(
+    @{ No=1;  Text=@{DE='Setup-Vorpruefungen';           EN='Setup prerequisites'};         Pattern='Readiness|Prerequisit|data collection' }
+    @{ No=2;  Text=@{DE='Organisationsvorbereitung';     EN='Organization preparation'};    Pattern='Organization' }
+    @{ No=3;  Text=@{DE='Schema-/AD-Aktualisierung';     EN='Schema / AD update'};          Pattern='Schema' }
+    @{ No=4;  Text=@{DE='Sprachpakete installieren';     EN='Installing language packs'};   Pattern='Language' }
+    @{ No=5;  Text=@{DE='Dateien kopieren';              EN='Copying files'};               Pattern='Copy|File' }
+    @{ No=6;  Text=@{DE='Windows-Komponenten';           EN='Windows components'};          Pattern='Component|IIS|Windows Feature' }
+    @{ No=7;  Text=@{DE='Exchange-Rolle installieren';   EN='Installing Exchange role'};    Pattern='Install Microsoft Exchange|Role|Binaries' }
+    @{ No=8;  Text=@{DE='Exchange-Dienste registrieren'; EN='Registering Exchange services'};Pattern='Service' }
+    @{ No=9;  Text=@{DE='Transport konfigurieren';       EN='Configuring transport'};       Pattern='Transport' }
+    @{ No=10; Text=@{DE='Client Access / OWA';           EN='Client Access / OWA'};         Pattern='ClientAccess|Client Access|OWA|MAPI|Rpc' }
+    @{ No=11; Text=@{DE='Postfach-Datenbanken';          EN='Mailbox databases'};           Pattern='Database' }
+    @{ No=12; Text=@{DE='Konfiguration abschliessen';    EN='Finalizing configuration'};    Pattern='Configur|Setting' }
+    @{ No=13; Text=@{DE='Abschluss / Cleanup';           EN='Cleanup / completion'};        Pattern='Cleanup|Remov|Complete|Finaliz' }
+)
+$Global:SetupPhaseCount = $Global:SetupPhaseDefs.Count
+$Global:SetupPhaseDone  = 0
+$Global:SetupPhaseStart = $null
+$Global:SetupCurrentPhaseText = ""
+
 $Global:ColorBackground = [System.Drawing.Color]::FromArgb(245, 247, 250)
 $Global:ColorPanel      = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $Global:ColorPanelAlt   = [System.Drawing.Color]::FromArgb(235, 240, 247)
@@ -313,7 +334,9 @@ $Global:Texts = @{
         DAG_WitnessDir="Witness-Verzeichnis:"; DAG_IP="DAG-IP-Adresse(n):"
         DAG_IPHint="(Mehrere IPs mit Komma trennen)"; DAG_IPless="IP-lose DAG (Exchange 2016+ empfohlen)"
         DAG_Members="DAG-Mitglieder (ein Server pro Zeile)"; DAG_Create="DAG erstellen + Mitglieder"
-        Run_Info="Live-Output von Setup. Wichtige Meilensteine erscheinen hier mit [SetupLog]."
+        Run_Info="Live-Output von Setup. Der Fortschrittsbalken zeigt die 13 Installationsphasen."
+        Run_ProgressLabel="Installationsfortschritt"; Run_PhaseRunning="Setup laeuft..."
+        Run_PhaseDone="Setup erfolgreich abgeschlossen"; Run_PhaseFailed="Setup mit Fehler beendet"
         Run_SaveCfg="Konfig speichern"; Run_LoadCfg="Konfig laden"; Run_ClearLog="Log leeren"
         Run_OpenLog="ExchangeSetup.log oeffnen"; Run_StartAll=">>>  GESAMTEN PROZESS STARTEN  <<<"
         Yes="Ja"; No="Nein"; OK="OK"; Cancel="Abbrechen"; Error="Fehler"; Info="Info"
@@ -379,7 +402,9 @@ $Global:Texts = @{
         DAG_WitnessDir="Witness Directory:"; DAG_IP="DAG IP Address(es):"
         DAG_IPHint="(Separate multiple IPs with comma)"; DAG_IPless="IP-less DAG (recommended Exchange 2016+)"
         DAG_Members="DAG Members (one server per line)"; DAG_Create="Create DAG + Members"
-        Run_Info="Live output from setup. Important milestones appear with [SetupLog]."
+        Run_Info="Live output from setup. The progress bar shows the 13 installation phases."
+        Run_ProgressLabel="Installation progress"; Run_PhaseRunning="Setup running..."
+        Run_PhaseDone="Setup completed successfully"; Run_PhaseFailed="Setup finished with errors"
         Run_SaveCfg="Save config"; Run_LoadCfg="Load config"; Run_ClearLog="Clear log"
         Run_OpenLog="Open ExchangeSetup.log"; Run_StartAll=">>>  START ENTIRE PROCESS  <<<"
         Yes="Yes"; No="No"; OK="OK"; Cancel="Cancel"; Error="Error"; Info="Info"
@@ -537,6 +562,90 @@ function Write-Log {
             $Global:StatusLabel.ForeColor = $col2
         }
         try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+    } catch {}
+}
+#endregion
+
+#region ============================ SETUP-FORTSCHRITT ============================
+function Get-PhaseText {
+    param([int]$Step)
+    try {
+        if ($Step -ge 1 -and $Step -le $Global:SetupPhaseCount) {
+            return $Global:SetupPhaseDefs[$Step-1].Text[$Global:CurrentLang]
+        }
+    } catch {}
+    return ""
+}
+
+function Initialize-SetupProgress {
+    param([string]$Title="")
+    try {
+        $Global:SetupPhaseDone  = 0
+        $Global:SetupPhaseStart = Get-Date
+        if ($Global:PrgSetup) {
+            try {
+                $Global:PrgSetup.Style   = "Continuous"
+                $Global:PrgSetup.Minimum = 0
+                $Global:PrgSetup.Maximum = $Global:SetupPhaseCount
+                $Global:PrgSetup.Value   = 0
+                $Global:PrgSetup.Refresh()
+            } catch {}
+        }
+        if ($Global:LblSetupPhase) {
+            $t = if ($Title) { $Title } else { (Get-T "Run_PhaseRunning") }
+            $Global:LblSetupPhase.Text = ("0 / $($Global:SetupPhaseCount)  -  " + $t)
+            $Global:LblSetupPhase.ForeColor = $Global:ColorAccent
+            $Global:LblSetupPhase.Refresh()
+        }
+        try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+    } catch { Write-Log ("SetupProgress init error: " + $_) -Level WARNING }
+}
+
+function Set-SetupProgress {
+    param([Parameter(Mandatory)][int]$Step,[string]$Text="")
+    try {
+        if ($Step -lt 1) { return }
+        if ($Step -gt $Global:SetupPhaseCount) { $Step = $Global:SetupPhaseCount }
+        if ($Step -gt $Global:SetupPhaseDone) { $Global:SetupPhaseDone = $Step }
+        if (-not $Text) { $Text = Get-PhaseText -Step $Global:SetupPhaseDone }
+        $Global:SetupCurrentPhaseText = $Text
+        if ($Global:PrgSetup) {
+            try {
+                if ($Global:PrgSetup.Value -ne $Global:SetupPhaseDone) { $Global:PrgSetup.Value = $Global:SetupPhaseDone }
+                $Global:PrgSetup.Refresh()
+            } catch {}
+        }
+        if ($Global:LblSetupPhase) {
+            $Global:LblSetupPhase.Text = ("$($Global:SetupPhaseDone) / $($Global:SetupPhaseCount)  -  " + $Text)
+            $Global:LblSetupPhase.ForeColor = $Global:ColorAccent
+            $Global:LblSetupPhase.Refresh()
+        }
+        try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+    } catch {}
+}
+
+# Ordnet einen Setup-Tasknamen der naechsthoeheren Phase zu (monoton fortschreitend)
+function Update-SetupProgressFromTask {
+    param([Parameter(Mandatory)][string]$Task)
+    try {
+        if ($Global:SetupPhaseDone -ge $Global:SetupPhaseCount) { return }
+        for ($i = $Global:SetupPhaseDone; $i -lt $Global:SetupPhaseCount; $i++) {
+            if ($Task -match $Global:SetupPhaseDefs[$i].Pattern) {
+                Set-SetupProgress -Step ($i + 1)
+                return
+            }
+        }
+    } catch {}
+}
+
+function Write-SetupPhaseOverview {
+    try {
+        $lbl = if ($Global:CurrentLang -eq "DE") { "Installationsphasen" } else { "Installation phases" }
+        Write-Log ("$lbl (" + $Global:SetupPhaseCount + "):") -Level INFO
+        for ($i = 0; $i -lt $Global:SetupPhaseCount; $i++) {
+            Write-Log ("  [{0,2}/{1}] {2}" -f ($i+1), $Global:SetupPhaseCount, $Global:SetupPhaseDefs[$i].Text[$Global:CurrentLang]) -Level INFO
+        }
+        Write-Log "----------------------------------------------" -Level INFO
     } catch {}
 }
 #endregion
@@ -944,7 +1053,8 @@ function Invoke-ResponsiveProcess {
         [Parameter(Mandatory)][string]$FilePath,
         [Parameter(Mandatory)][string[]]$Arguments,
         [string]$LogPrefix="Setup",[int]$HeartbeatSec=60,
-        [string]$ExchangeSetupLog=$Global:ExchangeSetupLog,[bool]$TailExchangeLog=$true
+        [string]$ExchangeSetupLog=$Global:ExchangeSetupLog,[bool]$TailExchangeLog=$true,
+        [bool]$TrackSetupProgress=$false
     )
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -959,6 +1069,7 @@ function Invoke-ResponsiveProcess {
         [void]$proc.Start()
         Write-Log ("PID: " + $proc.Id + " started") -Level INFO
         Write-Log "----------- LIVE-MILESTONES -----------" -Level INFO
+        if ($TrackSetupProgress) { Initialize-SetupProgress -Title $LogPrefix }
         $startTime = Get-Date; $lastHB = Get-Date; $lastLogPos = $logStartPos; $linesShown = 0; $lastTask = ""
         $important = @(
             @{Pattern='Beginning processing'; Level='INFO'},
@@ -1000,18 +1111,22 @@ function Invoke-ResponsiveProcess {
                             $clean = $line -replace '^\[\d{2}[\./]\d{2}[\./]\d{4}\s+\d{2}:\d{2}:\d{2}\.\d+\]\s*\[\d+\]\s*','' -replace '^\[\d{2}[\./]\d{2}[\./]\d{4}\s+\d{2}:\d{2}:\d{2}\.\d+\]\s*',''
                             $short = $clean.Trim()
                             if ($short.Length -gt 200) { $short = $short.Substring(0,200) + "..." }
-                            if ($short -match "Beginning processing (\w+\s*\w*)") {
-                                $task = $matches[1]
-                                if ($task -ne $lastTask) {
+                            if ($short -match 'Beginning processing\s+(.+?)\s*$') {
+                                $task = $matches[1].Trim().Trim('"',"'")
+                                if ($task -and $task -ne $lastTask) {
                                     Write-Log "" -Level INFO
-                                    Write-Log (">>> START: " + $task) -Level INFO
+                                    Write-Log ("[$($Global:SetupPhaseDone)/$($Global:SetupPhaseCount)] >>> START: " + $task) -Level INFO
                                     $lastTask = $task; $linesShown++
+                                    if ($TrackSetupProgress) { Update-SetupProgressFromTask -Task $task }
                                     continue
                                 }
                             }
-                            if ($short -match "Ending processing (\w+\s*\w*)") {
-                                Write-Log ("<<< DONE: " + $matches[1]) -Level SUCCESS
+                            if ($short -match 'Ending processing\s+(.+?)\s*$') {
+                                Write-Log ("<<< DONE: " + $matches[1].Trim().Trim('"',"'")) -Level SUCCESS
                                 Write-Log "" -Level INFO; $linesShown++; continue
+                            }
+                            if ($TrackSetupProgress -and $short -match 'Setup completed successfully') {
+                                Set-SetupProgress -Step $Global:SetupPhaseCount
                             }
                             Write-Log ("    " + $short) -Level $level
                             $linesShown++
@@ -1023,7 +1138,16 @@ function Invoke-ResponsiveProcess {
             }
             if (((Get-Date) - $lastHB).TotalSeconds -ge $HeartbeatSec) {
                 $el = ((Get-Date) - $startTime).ToString("hh\:mm\:ss")
-                Write-Log ("  ... $LogPrefix running | runtime: $el | milestones: $linesShown") -Level INFO
+                $ph = ""
+                if ($TrackSetupProgress) {
+                    $ph = " | Schritt $($Global:SetupPhaseDone)/$($Global:SetupPhaseCount)"
+                    if ($Global:SetupPhaseDone -gt 0 -and $Global:SetupPhaseStart) {
+                        $secPerPhase = ((Get-Date) - $Global:SetupPhaseStart).TotalSeconds / $Global:SetupPhaseDone
+                        $restMin = [int](($secPerPhase * ($Global:SetupPhaseCount - $Global:SetupPhaseDone)) / 60)
+                        if ($restMin -ge 1) { $ph += " | ca. $restMin min verbleibend" }
+                    }
+                }
+                Write-Log ("  ... $LogPrefix laeuft | Betriebszeit: $el$ph | Meilensteine: $linesShown") -Level INFO
                 $lastHB = Get-Date
             }
         }
@@ -1032,6 +1156,17 @@ function Invoke-ResponsiveProcess {
         $tt = ((Get-Date) - $startTime).ToString("hh\:mm\:ss")
         $lvl = if ($proc.ExitCode -eq 0) { "SUCCESS" } else { "ERROR" }
         Write-Log ("Exit code: " + $proc.ExitCode + " | runtime: " + $tt) -Level $lvl
+        if ($TrackSetupProgress) {
+            if ($proc.ExitCode -eq 0) {
+                Set-SetupProgress -Step $Global:SetupPhaseCount -Text (Get-T "Run_PhaseDone")
+                if ($Global:LblSetupPhase) { $Global:LblSetupPhase.ForeColor = $Global:ColorAccent2 }
+            } else {
+                if ($Global:LblSetupPhase) {
+                    $Global:LblSetupPhase.Text = ("$($Global:SetupPhaseDone) / $($Global:SetupPhaseCount)  -  " + (Get-T "Run_PhaseFailed"))
+                    $Global:LblSetupPhase.ForeColor = $Global:ColorError
+                }
+            }
+        }
         return $proc.ExitCode
     } catch { Write-Log ("Error: " + $_) -Level ERROR; return -1 }
 }
@@ -1117,8 +1252,9 @@ function Install-ExchangeServer {
 
         Write-Log "Starting Exchange Setup (60-90 min)..." -Level INFO
         Write-Log ("Arguments: " + ($arguments -join ' ')) -Level INFO
+        Write-SetupPhaseOverview
 
-        $exitCode = Invoke-ResponsiveProcess -FilePath $SetupPath -Arguments $arguments -LogPrefix "Exchange-Setup" -HeartbeatSec 60
+        $exitCode = Invoke-ResponsiveProcess -FilePath $SetupPath -Arguments $arguments -LogPrefix "Exchange-Setup" -HeartbeatSec 30 -TrackSetupProgress $true
         if ($exitCode -eq 0) { Write-Log "Exchange installed successfully!" -Level SUCCESS; return $true }
         Write-Log ("Setup failed with exit code: " + $exitCode) -Level ERROR
         Write-Log "Check details in: C:\ExchangeSetupLogs\ExchangeSetup.log" -Level WARNING
@@ -2500,12 +2636,22 @@ $TabRun.Controls.Add($LblRun)
 
 $Global:LogTextBox = New-Object System.Windows.Forms.RichTextBox
 $Global:LogTextBox.Location=New-Object System.Drawing.Point(10,40)
-$Global:LogTextBox.Size=New-Object System.Drawing.Size(1080,420)
+$Global:LogTextBox.Size=New-Object System.Drawing.Size(1080,355)
 $Global:LogTextBox.BackColor=[System.Drawing.Color]::White
 $Global:LogTextBox.ForeColor=$Global:ColorText
 $Global:LogTextBox.Font=$Global:FontMono; $Global:LogTextBox.ReadOnly=$true
 $Global:LogTextBox.BorderStyle="FixedSingle"
 $TabRun.Controls.Add($Global:LogTextBox)
+
+# === Fortschritt der Exchange-Installation ===
+$Global:LblSetupPhase = New-Label ((Get-T "Run_ProgressLabel") + ":  " + (Get-T "Ready")) 10 400 1080 $Global:FontBold
+$TabRun.Controls.Add($Global:LblSetupPhase)
+
+$Global:PrgSetup = New-Object System.Windows.Forms.ProgressBar
+$Global:PrgSetup.Location=New-Object System.Drawing.Point(10,422)
+$Global:PrgSetup.Size=New-Object System.Drawing.Size(1080,18)
+$Global:PrgSetup.Minimum=0; $Global:PrgSetup.Maximum=$Global:SetupPhaseCount; $Global:PrgSetup.Value=0
+$TabRun.Controls.Add($Global:PrgSetup)
 
 # === Save Config ===
 $BtnSaveCfg = New-Button (Get-T "Run_SaveCfg") 10 470 180 32 $Global:ColorAccent

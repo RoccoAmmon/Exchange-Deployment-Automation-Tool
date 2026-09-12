@@ -5,7 +5,7 @@
 ![Status: Production](https://img.shields.io/badge/Status-Production-brightgreen)
 ![Version: 1.3](https://img.shields.io/badge/Version-1.3-blue)
 
-**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
+**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive Live-Fortschrittsanzeige der 13 Installationsphasen, korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
 
 ---
 
@@ -54,6 +54,12 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 - Postfach-Datenbanken per Präfix + Startnummer + Anzahl generieren
 - **Vorschau vollständig editierbar** – EDB- und Log-Pfade pro Zeile direkt anpassbar
 - Datenbanken werden inkl. Verzeichniserstellung und Mount automatisch angelegt
+
+### Live-Fortschrittsanzeige
+- Fortschrittsbalken mit den **13 Installationsphasen** im Tab „Ausführung und Log“
+- Automatische Phasen-Zuordnung aus dem Setup-Log (`Beginning processing <Task>`)
+- Meilensteine im Log mit Präfix `[n/13]` und grober Restzeit-Schätzung
+- Farbliche Statusanzeige nach Erfolg (grün) bzw. Fehler (rot)
 
 ---
 

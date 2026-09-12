@@ -7,11 +7,20 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
-## [1.3] - 2026-09-09
+## [1.3] - 2026-09-12
+
+### ✨ Hinzugefügt
+- **Fortschrittsanzeige für die Exchange-Installation**: ProgressBar + Phasentext im Tab „Ausführung und Log“ zeigen die 13 Installationsphasen (Voraussetzungen, Organisations-/Schema-Vorbereitung, Sprachpakete, Dateien, Rollen, Dienste, Transport, Client Access, Datenbanken, Konfiguration, Cleanup)
+- **Phasen-Zuordnung aus dem Setup-Log**: `Beginning processing <Task>` wird per Muster auf die nächste Phase gemappt (`Update-SetupProgressFromTask`), Meilensteine im Log erhalten Präfix `[n/13]`
+- **Phasenübersicht vor dem Start**: `Write-SetupPhaseOverview` listet alle 13 Schritte im Log auf
+- **Grobe Restzeit-Schätzung** im Heartbeat („ca. X min verbleibend“)
 
 ### 🔧 Geändert
 - **PrepareAD ohne unnötige Upgrade-Warnung**: `/OrganizationName:` wird bei `PrepareAD` nur noch übergeben, wenn sich der Organisationsname vom bereits vorhandenen unterscheidet – bei unverändertem Namen (Upgrade) entfällt der Parameter
 - **GUI-Header optimiert**: Autor und Versionsnummer werden weiter links (direkt hinter dem Titel) angezeigt statt ganz rechts
+- `Invoke-ResponsiveProcess`: neuer Parameter `-TrackSetupProgress`, Heartbeat-Intervall während des Setups von 60 s auf 30 s reduziert
+- Task-Namen aus dem Setup-Log werden vollständig (statt nur zwei Wörter) übernommen
+- Statuszeile/ProgressBar nach Erfolg bzw. Fehler farblich abgesetzt
 
 ---
 
