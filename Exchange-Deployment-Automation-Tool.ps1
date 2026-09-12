@@ -55,6 +55,7 @@ Start-Sleep -Milliseconds 600
     - Active Directory Vorbereitung (ForestPrep, DomainPrep)
     - Automatische Installation aller Voraussetzungen (.NET, KB-Updates, VC++ Runtime)
     - Unbeaufsichtigtes Exchange Setup mit automatischer Antwortdatei-Generierung
+    - Live-Fortschrittsanzeige mit 13 Installationsphasen & Live-Setup-Log
     - Post-Installation Konfiguration (Services, Zertifikate, Koexistenz)
 
 .FEATURES
@@ -67,6 +68,8 @@ Start-Sleep -Milliseconds 600
     ✓ Admin-Auto-Elevation – Automatische UAC-Eskalation mit RunAs
     ✓ AntiSpam-Steuerung – Agents einzeln aktivierbar/deaktivierbar (Sender-ID immer aus)
     ✓ DB-Generator – Postfach-Datenbanken mit editierbarer Vorschau (EDB-/Log-Pfade pro Zeile)
+    ✓ Live-Fortschrittsanzeige – 13 Installationsphasen mit ProgressBar & Phasentext
+    ✓ Live-Setup-Log – Phasen-Zuordnung aus dem Setup-Log, Restzeit-Schätzung
     ✓ Production-Ready – Getestet in Lab, Test und Production
 
 .ANWENDUNGSFÄLLE
@@ -189,7 +192,10 @@ Start-Sleep -Milliseconds 600
     • Support-Kanal (Email/Chat) bereithalten
 
 .CHANGELOG
-    1.3 (2026-09-09)
+    1.3 (2026-09-12)
+    - Fortschrittsanzeige: 13 Installationsphasen mit ProgressBar & Phasentext
+    - Live-Setup-Log: Phasen-Zuordnung aus dem Setup-Log, Meilensteine mit [n/13]
+    - Restzeit-Schätzung im Heartbeat, Heartbeat-Intervall auf 30s reduziert
     - PrepareAD: OrganizationName wird nur bei Namensänderung übergeben (keine Upgrade-Warnung)
     - GUI-Header: Autor/Version weiter links eingerückt
 
