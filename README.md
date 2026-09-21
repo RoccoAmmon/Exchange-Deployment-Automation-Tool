@@ -9,6 +9,8 @@
 
 ---
 
+DAG Funktion ist noch nicht funktional!
+
 ## 📋 Übersicht
 
 Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zur **vollautomatisierten Installation und Konfiguration** von Microsoft Exchange Server 2016, 2019 und Standard Edition (SE). Das Skript vereinheitlicht folgende Aufgaben in einem kontinuierlichen Workflow:
