@@ -3,9 +3,9 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://www.microsoft.com/de-de/powershell)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Status: Production](https://img.shields.io/badge/Status-Production-brightgreen)
-![Version: 1.3](https://img.shields.io/badge/Version-1.3-blue)
+![Version: 1.4](https://img.shields.io/badge/Version-1.4-blue)
 
-**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive Live-Fortschrittsanzeige der 13 Installationsphasen, korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
+**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive Live-Fortschrittsanzeige der 14 Installationsphasen (je Setup-Task eine Zeile mit OK), URL-Übernahme vom bestehenden Exchange, Zertifikats-Center (Import / AD-CS / selbstsigniert mit SAN-Liste), automatischer AD-Prep-Ergebniskontrolle, korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
 
 ---
 
@@ -16,10 +16,11 @@ DAG Funktion ist noch nicht funktional!
 Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zur **vollautomatisierten Installation und Konfiguration** von Microsoft Exchange Server 2016, 2019 und Standard Edition (SE). Das Skript vereinheitlicht folgende Aufgaben in einem kontinuierlichen Workflow:
 
 - ✅ Servervorbereitung (Systemvoraussetzungen)
-- ✅ Active Directory-Vorbereitung (ForestPrep, DomainPrep)
+- ✅ Active Directory-Vorbereitung (ForestPrep, DomainPrep) mit automatischer Ergebniskontrolle
 - ✅ Exchange Setup mit automatischen Antwortdateien
 - ✅ Automatische Installation von Voraussetzungen und Komponenten
 - ✅ Post-Installation Konfiguration (Koexistenz, Zertifikate, Services)
+- ✅ URL-Übernahme vom bestehenden Exchange auf den neuen Server
 
 ---
 
@@ -29,18 +30,48 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 - Keine manuelle Intervention erforderlich
 - Unbeaufsichtigter Modus mit automatischer Antwortdatei-Generierung
 - Durchgehender Workflow ohne Unterbrechungen
+- **ISO-Mount/Dismount automatisch**: Die ISO-Datei wird gemountet, sobald ein Schritt sie braucht (Voraussetzungen/UCMA, AD-Vorbereitung, Exchange-Installation), und **immer** nach dem jeweiligen Lauf wieder freigegeben – auch bei Abbruch; manuell gemountete Laufwerke bleiben unberührt (die früheren Optionen „ISO automatisch mounten“ und „ISO am Ende automatisch unmounten“ wurden entfernt)
 
 ### Umfassende Vorbereitung
 - Automatische Überprüfung der Systemvoraussetzungen
+- **Vorab-Prüfung auf das Exchange-Medium bei „UCMA 4.0“**: bevor die Voraussetzungen installiert werden, prüft `Get-ExchangeMediaStatus` per frischem Laufwerk-Scan, ob eine ISO-Datei, ein gemountetes Image oder eine eingelegte Exchange-CD/DVD vorhanden ist; fehlt das Medium, bricht der Lauf **vor Schritt `[1/8]`** ab, bevor irgendetwas verändert wird (Hinweis: ISO auswählen/mounten, CD einlegen oder UCMA abwählen), und die Statuszeile „UCMA 4.0“ zeigt den Medium-Zustand bereits vor dem Klick
 - AD-Vorbereitung (ForestPrep, DomainPrep) integriert
+- **Automatische Ergebniskontrolle nach dem Adprep**: Schema-, Organisations- und DomainPrep-Versionsstände, Vorbereitungs-Berechtigungen sowie Schema-Replikation über alle Domain Controller
+- **AD-Status aktualisiert sich automatisch**: nach jedem Adprep-Lauf (Button oder Workflow-Schritt) und nach jedem Ergebnis-Check wird auch die Status-Gruppe (Schema/Org/Domain, Benutzer, Berechtigungen) neu gefüllt – das manuelle Klicken auf „Status aktualisieren“ entfällt
+- **Installations-Sperre bei unvollständiger AD-Vorbereitung**: die Exchange-Installation läuft nur, wenn alle AD-Prüfpunkte OK sind; andernfalls bricht der Lauf vor dem Setup ab und meldet die nicht OK Punkte (auch bei aktiviertem „Bei Fehlern weiter machen“)
 - Automatische Installation aller Voraussetzungen
 - Komponentenverwaltung
+
+### URLs übernehmen
+- Eigener Tab **„URLs“** (der frühere Tab „URLs & Zertifikate“ ist in **„URLs“** und **„Zertifikate“** geteilt)
+- **Nur die Domäne eingeben** (z. B. `mail.test.de`) und **„URLs vervollständigen“** drücken – alle sieben anwendbaren Dienste entstehen mit den Exchange-Standardpfaden, z. B. `https://mail.test.de/owa`, `/ecp`, `/EWS/Exchange.asmx`, `/mapi`, `/oab`, `/Microsoft-Server-ActiveSync`, `/autodiscover/autodiscover.xml`; beim Autodiscover wird der Host dabei automatisch zu `autodiscover.<Domain>` abgeleitet (Basis `mail.test.de` → `https://autodiscover.test.de/autodiscover/autodiscover.xml` – DNS-Eintrag und SAN für diesen Namen vorausgesetzt)
+- Häkchen **„externe URLs = interne“** (Standard): alle URLs tragen denselben Domainnamen; ohne Haken lassen sich interne und externe Domäne getrennt angeben
+- Interne und externe URLs eines **bestehenden Exchange-Servers auslesen** und für den neuen Server übernehmen
+- Unterstützt: OWA, ECP, EWS, ActiveSync, Autodiscover, MAPI, OAB
+- **PowerShell-URL wird nicht angefasst**: die Zeile ist nur sichtbar (read-only) und bleibt damit beim Setup-Standard (`/powershell`) – weder Erzeugen noch Anwenden ändert sie
+- Einzelne Werte bleiben editierbar, danach mit einem Klick auf alle Virtual Directories anwenden
+- Beim Anwenden wird die **Identity des jeweiligen Virtual Directory automatisch mitübergeben** (`Set-*VirtualDirectory` verlangt den Pflichtparameter `-Identity`) – es gibt damit keine interaktive Rückfrage „Geben Sie Werte für die folgenden Parameter an: Identity:“ in der Konsole
+- Die interne Autodiscover-URL wird zusätzlich als **SCP** gesetzt (`Set-ClientAccessService -AutoDiscoverServiceInternalUri`), denn Outlook bezieht diese Adresse aus Active Directory
+- **Autodiscover hat nur ein Feld**: Autodiscover besitzt keine interne/externe Trennung – eingetragen wird ausschließlich die SCP-URI (`AutoDiscoverServiceInternalUri`), deshalb fehlt in der Autodiscover-Zeile die externe Spalte (Tooltip erklärt das); „URLs vervollständigen“ erzeugt hier nur die interne URL
+- Die Autodiscover-Zeile wird dabei bewusst **nicht** über das VD-Cmdlet gesetzt – `Set-AutodiscoverVirtualDirectory` kennt `InternalUrl`/`ExternalUrl` nur in Exchange 2010; das Tool prüft die Cmdlet-Parameter (`Get-Command`) und übergibt nur Vorhandenes, statt mit einem Parameterfehler zu scheitern
+- Auch als automatischer Workflow-Schritt „URLs setzen“ verfügbar
+
+### Zertifikats-Center
+- Eigener Tab **„Zertifikate“**, der die **volle Fensterhöhe** nutzt: drei Gruppen für Status (oben), Parameter (Mitte) und Aktionen (unten) – kein Leerraum mehr unter der Eingabemaske
+- Drei Modi: **PFX-Import** (eigener Dialog mit Kennwort und Serviceauswahl), **AD-Zertifizierungsstelle** oder **selbstsigniert**
+- **AD-Zertifizierungsstelle = echte CA-Anfrage**: Antrag über `New-ExchangeCertificate -GenerateRequest`, Einreichung per `certreq -submit` bei der in Active Directory gefundenen Enterprise-CA (`CN=Enrollment Services`), `certreq -accept` für den privaten Schlüssel, danach Import und Aktivierung der Dienste – **eine Standalone-CA ist in AD nicht registriert und wird im Feld „CA:" als `SERVER\CA-Name` eingetragen** (leer = automatische Suche); Voraussetzung ist eine erreichbare CA mit veröffentlichtem Template (Standard **`WebServer`**, im Feld „CA-Template:" änderbar). Wartende Anträge (engl. „pending" und dt. „ausstehend") werden mit Antrags-ID gemerkt und nach der Freigabe automatisch per `certreq -retrieve` abgeholt – bis dahin bewusst keine Neuanfrage; abgelehnte Anträge enden mit klarem Fehler. Fehlt eine CA oder schlägt certreq fehl, wird der Grund ins Log geschrieben und nichts erzeugt
+- **Beliebige SAN-Namen** – ein FQDN pro Zeile (z. B. `mail.contoso.local`, `autodiscover.contoso.local`); der Button **„SAN aus URLs ableiten“** füllt die Liste automatisch aus Domain und URL-Basis
+- Gültigkeit und Schlüssellänge (1024/2048/4096) einstellbar
+- Optionale Aktivierung für **IIS, SMTP, IMAP und POP**
+- Auch als automatischer Workflow-Schritt „Zertifikat erstellen“ verfügbar
+- Das PFX-Passwort wird bewusst **nicht** in der Konfigurationsdatei gespeichert
 
 ### Produktionsreife
 - Fehlerreduktion durch Automatisierung
 - Reproduzierbare Deployment-Prozesse
 - Umfassende Validierung und Fehlerbehandlung
 - Detaillierte Logging-Funktionalität
+- **Responsive GUI**: Das Fenster ist frei skalierbar – bei Vollbild oder geänderter Fenstergröße werden alle Gruppen, Felder und Schriften proportional mit skaliert
 
 ### Enterprise-tauglich
 - Unterstützung für Exchange 2016, 2019 und SE
@@ -58,9 +89,10 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 - Datenbanken werden inkl. Verzeichniserstellung und Mount automatisch angelegt
 
 ### Live-Fortschrittsanzeige
-- Fortschrittsbalken mit den **13 Installationsphasen** im Tab „Ausführung und Log“
-- Automatische Phasen-Zuordnung aus dem Setup-Log (`Beginning processing <Task>`)
-- Meilensteine im Log mit Präfix `[n/13]` und grober Restzeit-Schätzung
+- Fortschrittsbalken mit den **14 Installationsphasen** im Tab „Ausführung und Log“
+- Phasen-Erkennung aus den echten Setup-Tasks (`Setup will run the task '<Task>'` bzw. `Ending processing: <Task>`), Untertasks erzeugen keine eigenen Zeilen mehr
+- Pro Phase genau zwei Zeilen im Log: `[ n/14] <Task> (<Label>) ...` beim Start und `[ n/14] <Task> OK` am Ende – bei Fehler `[ n/14] <Task> FEHLER (Setup-Exit n)` plus die konkrete Fehlermeldung
+- Phasenübersicht vor dem Start inkl. Task-Namen, `Phasen-Report` am Ende, grobe Restzeit-Schätzung im Heartbeat
 - Farbliche Statusanzeige nach Erfolg (grün) bzw. Fehler (rot)
 
 ---
@@ -109,7 +141,7 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 
 ### Schritt 1: Repository klonen
 ```powershell
-git clone https://github.com/RoccoAmmon/Exchange-Deployment-Automation-Tool.git
+git clone https://gitlab.com/RoccoAmmon/Exchange-Deployment-Automation-Tool.git
 cd Exchange-Deployment-Automation-Tool
 ```
 
@@ -128,10 +160,10 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 ### Schritt 4: Konfiguration folgen
 Das Skript leitet Sie interaktiv durch:
 1. Systemvalidierung
-2. AD-Vorbereitung (optional)
+2. AD-Vorbereitung (optional) – inklusive automatischem Ergebnis-Check
 3. Exchange-Setup-Parameter
 4. Automatische Installation
-5. Post-Installation Konfiguration
+5. Post-Installation Konfiguration (Zertifikate, URLs, Services)
 
 ---
 
@@ -175,6 +207,7 @@ Weitere Konfigurationsoptionen finden Sie im [**Wiki**](../../wiki).
 ┌─────────────────────────────────────────────┐
 │ 2. AD-Vorbereitung (optional)               │
 │    - ForestPrep, DomainPrep                 │
+│    - Automatische Ergebniskontrolle         │
 └────────────┬────────────────────────────────┘
              │
              ▼
@@ -193,7 +226,9 @@ Weitere Konfigurationsoptionen finden Sie im [**Wiki**](../../wiki).
              ▼
 ┌─────────────────────────────────────────────┐
 │ 5. Post-Installation Konfiguration          │
-│    - Services, Zertifikate, Koexistenz     │
+│    - Zertifikat (Import/AD-CS/selbstsigniert)│
+│    - URLs vom Alt-Exchange übernehmen       │
+│    - Services, Koexistenz                   │
 └────────────┬────────────────────────────────┘
              │
              ▼
@@ -235,6 +270,13 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 ### Problem: "AD-Vorbereitung schlägt fehl"
 Siehe [**Troubleshooting-Guide**](../../wiki/Troubleshooting#AD-Vorbereitung)
 
+### Problem: URLs und Zertifikat nach der Installation
+Die Tabs **„URLs“** und **„Zertifikate“** sind auch nach abgeschlossenem Setup manuell aufrufbar.
+Steht noch ein Alt-Exchange zur Verfügung, lassen sich dessen URLs mit
+**„Von Exchange auslesen“** übernehmen und anschließend auf den neuen Server anwenden.
+Alternativ im Tab „URLs“ die Domäne eintragen (z. B. `mail.test.de`) und
+**„URLs vervollständigen“** drücken – die Standardpfade werden ergänzt.
+
 ---
 
 ## 📈 Support & Community
@@ -242,7 +284,7 @@ Siehe [**Troubleshooting-Guide**](../../wiki/Troubleshooting#AD-Vorbereitung)
 | Frage/Problem | Kontakt |
 |---|---|
 | **Bug-Report** | [Issues](../../issues) |
-| **Feature-Request** | [Discussions](../../discussions) |
+| **Feature-Request** | [Diskussionen](../../discussions) |
 | **Dokumentation** | [Wiki](../../wiki) |
 | **Lizenzfragen** | Siehe [LICENSE](LICENSE) |
 
@@ -256,7 +298,7 @@ Dieses Projekt ist unter der [MIT-Lizenz](LICENSE) lizenziert.
 
 ## 👤 Autor
 
-**Rocco Ammon** – Repository: [RoccoAmmon](https://github.com/RoccoAmmon)
+**Rocco Ammon** – Repository: [RoccoAmmon](https://gitlab.com/RoccoAmmon)
 
 ---
 
@@ -268,7 +310,7 @@ Siehe [CHANGELOG.md](CHANGELOG.md) für eine vollständige Versionshistorie.
 
 ## 🤝 Beitragen
 
-Beiträge sind willkommen! Bitte erstelle einen Pull Request oder ein Issue für:
+Beiträge sind willkommen! Bitte erstelle einen Merge Request oder ein Issue für:
 - 🐛 Bugfixes
 - ✨ Neue Features
 - 📚 Dokumentation
@@ -276,4 +318,4 @@ Beiträge sind willkommen! Bitte erstelle einen Pull Request oder ein Issue für
 
 ---
 
-**Zuletzt aktualisiert:** September 2026 | **Version:** 1.3
+**Zuletzt aktualisiert:** September 2026 | **Version:** 1.4
