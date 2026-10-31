@@ -238,6 +238,9 @@ Start-Sleep -Milliseconds 600
       nicht OK DBs per Log + MessageBox (i18n-Key DB_VerifyFail) - der
       Mount-Database-Aufruf ist nicht mehr direkt in der Anlage-Schleife
       (Race-Condition-Fehler trotz korrekter Anlage)
+    - Button "Datenbanken jetzt erstellen" springt vor dem Anlegen zum
+      Reiter "Ausfuehrung und Log" - der gesamte Ablauf (Anlage,
+      Store-Neustart, Mount, Pruefung) laeuft live mit
     - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
       "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
       die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
@@ -5624,7 +5627,13 @@ function Invoke-DatabaseCreation {
 }
 
 $BtnCreateDBNow = New-Button (Get-T "DB_CreateNow") 10 524 350 38 $Global:ColorAccent2
-$BtnCreateDBNow.Add_Click({ [void](Invoke-DatabaseCreation) })
+$BtnCreateDBNow.Add_Click({
+    # Vor dem Anlegen zum Log-Tab springen, damit der gesamte Ablauf
+    # (Anlage, Store-Neustart, Mount, Pruefung) live sichtbar ist -
+    # wie schon beim Workflow- und AD-Vorbereitungs-Button auch.
+    $TabControl.SelectedTab = $TabRun
+    [void](Invoke-DatabaseCreation)
+})
 $TabDB.Controls.Add($BtnCreateDBNow)
 
 #endregion
