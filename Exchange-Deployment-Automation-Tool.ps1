@@ -230,6 +230,14 @@ Start-Sleep -Milliseconds 600
       i18n-Keys PendingReboot_Title/Offer/Starting); bei "Ja" shutdown
       /r /t 60 (abbruechbar mit shutdown /a), danach den Vorgang wiederholen,
       bei "Nein" bisheriger ERROR-Abbruch
+    - Datenbanken: nach dem Anlegen wird der Informationsspeicher automatisch
+      neu gestartet (Restart-ExchangeInformationStore, MSExchangeIS,
+      Warte-Loop bis Running) und danach mountet das Tool die neuen DBs;
+      anschliessend prueft Test-MailboxDatabases alle gelisteten DBs
+      (Existenz, Mount, EDB/Log-Ordner, Test-MapiConnectivity) und meldet
+      nicht OK DBs per Log + MessageBox (i18n-Key DB_VerifyFail) - der
+      Mount-Database-Aufruf ist nicht mehr direkt in der Anlage-Schleife
+      (Race-Condition-Fehler trotz korrekter Anlage)
     - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
       "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
       die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
@@ -722,6 +730,7 @@ $Global:Texts = @{
         DB_Server="Zielserver:"; DB_Base="DB-Basispfad:"; DB_LogBase="Log-Basispfad:"
         DB_Generate="Konfiguration generieren (Vorschau)"; DB_Clear="Liste leeren"
         DB_Preview="Vorschau / Bearbeitbare Liste:"; DB_CreateNow="Datenbanken jetzt erstellen"
+        DB_VerifyFail="Datenbank-Pruefung: {0} von {1} Datenbanken NICHT OK (nicht gemountet, fehlende Dateien oder MAPI nicht erreichbar). Details im Log."
         DAG_Settings="DAG-Grundeinstellungen"; DAG_Name="DAG-Name:"; DAG_Witness="Witness-Server:"
         DAG_WitnessDir="Witness-Verzeichnis:"; DAG_IP="DAG-IP-Adresse(n):"
         DAG_IPHint="(Mehrere IPs mit Komma trennen)"; DAG_IPless="IP-lose DAG (Exchange 2016+ empfohlen)"
@@ -839,6 +848,7 @@ $Global:Texts = @{
         DB_Server="Target Server:"; DB_Base="DB Base Path:"; DB_LogBase="Log Base Path:"
         DB_Generate="Generate config (Preview)"; DB_Clear="Clear list"
         DB_Preview="Preview / Editable List:"; DB_CreateNow="Create databases now"
+        DB_VerifyFail="Database verification: {0} of {1} databases NOT OK (not mounted, missing files or MAPI unreachable). See log for details."
         DAG_Settings="DAG Base Settings"; DAG_Name="DAG Name:"; DAG_Witness="Witness Server:"
         DAG_WitnessDir="Witness Directory:"; DAG_IP="DAG IP Address(es):"
         DAG_IPHint="(Separate multiple IPs with comma)"; DAG_IPless="IP-less DAG (recommended Exchange 2016+)"
@@ -5446,6 +5456,81 @@ foreach ($col in @(@{Name="DBName";Header="DB Name"},@{Name="Server";Header="Ser
 }
 $TabDB.Controls.Add($Global:DgvDB)
 
+function Restart-ExchangeInformationStore {
+    <#
+        Startet den Microsoft Exchange Informationsspeicher-Dienst (MSExchangeIS)
+        neu und wartet, bis er wieder auf Running steht. Nach dem Anlegen neuer
+        Mailbox-Datenbanken registriert der Store die neuen DBs erst nach
+        einem Refresh - direkt danach ausgefuehrte Mounts und Pruefungen
+        werfen sonst Fehler, obwohl die Anlage selbst korrekt war
+        (beobachtet: DBs wurden angelegt, Mount/Abfragen meldeten aber Fehler).
+        Liefert $true, wenn der Dienst wieder auf Running steht.
+    #>
+    param([int]$TimeoutSec = 180)
+    $svc = "MSExchangeIS"
+    try {
+        Write-Log ("Restarting Microsoft Exchange Information Store ($svc, timeout $TimeoutSec s) / Informationsspeicher wird neu gestartet...") -Level INFO
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        Restart-Service -Name $svc -Force -ErrorAction Stop
+        $st = $null
+        $deadline = [DateTime]::Now.AddSeconds($TimeoutSec)
+        do {
+            Start-Sleep -Seconds 2
+            $st = (Get-Service -Name $svc -ErrorAction SilentlyContinue).Status
+        } while ("$st" -ne "Running" -and [DateTime]::Now -lt $deadline)
+        $sw.Stop()
+        if ("$st" -ne "Running") {
+            Write-Log ("Information store did NOT reach status Running within $TimeoutSec s (status: $st) / Informationsspeicher nicht wieder aktiv - bitte Service-Konsole pruefen") -Level ERROR
+            return $false
+        }
+        Write-Log ("Information store restarted in " + [int]$sw.Elapsed.TotalSeconds + " s / Informationsspeicher neu gestartet") -Level SUCCESS
+        return $true
+    } catch {
+        Write-Log ("Information store restart failed: " + $_.Exception.Message + " / Neustart des Informationsspeichers fehlgeschlagen - DBs ggf. manuell pruefen und mounten") -Level ERROR
+        return $false
+    }
+}
+
+function Test-MailboxDatabases {
+    <#
+        Prueft die uebergebenen Datenbanken und schreibt pro DB einen
+        Befund ins Log: Objekt vorhanden, gemountet, EDB-Datei und
+        Log-Ordner vorhanden, MAPI-Erreichbarkeit. Liefert
+        PSCustomObject mit Checked/Ok/Failed (Namen der nicht OK DBs).
+        Kein Exchange auf dem System? Die Cmdlets sind nach
+        Import-ExchangeManagementShell geladen - hier nur try/catch.
+    #>
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowEmptyCollection()][string[]]$Names)
+    $checked = 0; $ok = 0; $failed = @()
+    foreach ($n in $Names) {
+        if ([string]::IsNullOrWhiteSpace($n)) { continue }
+        $checked++
+        $problems = @()
+        $db = $null
+        try { $db = Get-MailboxDatabase -Identity $n -ErrorAction SilentlyContinue -Status } catch {}
+        if (-not $db) {
+            $problems += "database object not found / Datenbankobjekt nicht gefunden"
+        } else {
+            if (-not $db.Mounted) { $problems += "not mounted / nicht gemountet" }
+            $edb = $db.EdbFilePath; $logf = $db.LogFolderPath
+            if ($edb -and -not (Test-Path $edb))    { $problems += "EDB file missing: $edb / EDB-Datei fehlt" }
+            if ($logf -and -not (Test-Path $logf)) { $problems += "log folder missing: $logf / Log-Ordner fehlt" }
+            if ($db.Mounted -and $problems.Count -eq 0) {
+                try { Test-MapiConnectivity -Database $n -ErrorAction Stop | Out-Null }
+                catch { $problems += ("MAPI test failed / MAPI-Test fehlgeschlagen: " + $_.Exception.Message) }
+            }
+        }
+        if ($problems.Count -eq 0) {
+            $ok++
+            Write-Log ("  DB check '" + $n + "': OK (mounted, files present, MAPI reachable) / Pruefung OK") -Level SUCCESS
+        } else {
+            $failed += $n
+            Write-Log ("  DB check '" + $n + "': NOT OK - " + ($problems -join "; ")) -Level ERROR
+        }
+    }
+    return [PSCustomObject]@{ Checked=$checked; Ok=$ok; Failed=@($failed) }
+}
+
 function Invoke-DatabaseCreation {
     <#
         Legt die in der Datenbank-Liste definierten Mailbox-Datenbanken an.
@@ -5472,7 +5557,7 @@ function Invoke-DatabaseCreation {
         Write-Log "Exchange Management Shell could not be loaded - database step SKIPPED / Exchange-Verwaltungsshell nicht ladbar - Datenbank-Schritt uebersprungen" -Level ERROR
         return $false
     }
-    $created = 0; $existing = 0; $errCnt = 0
+    $created = 0; $existing = 0; $errCnt = 0; $newNames = @()
     foreach ($row in $rows) {
         $n = "$($row.Cells['DBName'].Value)"
         try {
@@ -5485,15 +5570,57 @@ function Invoke-DatabaseCreation {
             $eDir = Split-Path $edb -Parent
             if (-not (Test-Path $eDir)) { New-Item $eDir -ItemType Directory -Force | Out-Null }
             if (-not (Test-Path $lp)) { New-Item $lp -ItemType Directory -Force | Out-Null }
+            # HINWEIS: Mount-Database laeuft NICHT mehr direkt hier - der Store
+            # kennt die frisch angelegte DB noch nicht immer sofort, und der
+            # direkte Mount warf Fehler, obwohl die Anlage korrekt war. Die
+            # DBs werden jetzt gebuendelt NACH dem Store-Neustart gemountet.
             New-MailboxDatabase -Name $n -Server "$($row.Cells['Server'].Value)" -EdbFilePath $edb -LogFolderPath $lp -ErrorAction Stop | Out-Null
-            Mount-Database -Identity $n -ErrorAction Stop
             Write-Log ("DB '" + $n + "' created / angelegt") -Level SUCCESS
             $created++
+            $newNames += $n
         } catch { $errCnt++; Write-Log ("DB Error '" + $n + "': " + $_) -Level ERROR }
     }
-    $sum = ("Database summary / Datenbanken: " + $created + " created / angelegt, " + $existing + " already existing / vorhanden, " + $errCnt + " errors / Fehler")
-    if ($errCnt -gt 0) { Write-Log $sum -Level ERROR } else { Write-Log $sum -Level SUCCESS }
-    return ($errCnt -eq 0)
+
+    # Informationsspeicher neu starten: nach dem Anlegen erkennt der Store
+    # die neuen DBs erst nach einem Refresh - erst danach mounten und
+    # pruefen (siehe Restart-ExchangeInformationStore).
+    if ($newNames.Count -gt 0) {
+        [void](Restart-ExchangeInformationStore)
+        Start-Sleep -Seconds 10  # kurze Anlaufzeit fuer den Store
+        foreach ($n in $newNames) {
+            try {
+                $st = $null
+                try { $st = Get-MailboxDatabase -Identity $n -ErrorAction SilentlyContinue -Status } catch {}
+                if (-not $st) {
+                    $errCnt++
+                    Write-Log ("DB mount error '" + $n + "': database object not found after store restart / Datenbankobjekt nach Store-Neustart nicht gefunden") -Level ERROR
+                } elseif ($st.Mounted) {
+                    Write-Log ("  DB '" + $n + "' already mounted (auto-mounted on store start) / bereits gemountet") -Level INFO
+                } else {
+                    Mount-Database -Identity $n -ErrorAction Stop
+                    Write-Log ("  DB '" + $n + "' mounted after store restart / nach Store-Neustart gemountet") -Level SUCCESS
+                }
+            } catch { $errCnt++; Write-Log ("DB mount error '" + $n + "': " + $_) -Level ERROR }
+        }
+    }
+
+    # Verifikation: alle gelisteten DBs (neu und vorhanden) auf Existenz,
+    # Mount, Dateien und MAPI-Erreichbarkeit pruefen - Fehler werden
+    # sichtbar, statt dass die DBs nur "angelegt" gelten.
+    $allNames = @($rows | ForEach-Object { "$($_.Cells['DBName'].Value)" } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    $verify = Test-MailboxDatabases -Names $allNames
+
+    $sum = ("Database summary / Datenbanken: " + $created + " created / angelegt, " + $existing + " already existing / vorhanden, " + $errCnt + " errors / Fehler; verification / Pruefung: " + $verify.Ok + " of " + $verify.Checked + " databases OK")
+    if ($errCnt -gt 0 -or $verify.Failed.Count -gt 0) { Write-Log $sum -Level ERROR } else { Write-Log $sum -Level SUCCESS }
+    if ($verify.Checked -gt 0 -and $verify.Failed.Count -eq 0 -and $errCnt -eq 0) {
+        Write-Log ("Database verification: all " + $verify.Checked + " databases OK (mounted, files present, MAPI reachable) / Datenbank-Pruefung: alle Datenbanken korrekt") -Level SUCCESS
+    }
+    if ($verify.Failed.Count -gt 0) {
+        $vMsg = (Get-T "DB_VerifyFail") -f $verify.Failed.Count, $verify.Checked
+        $vMsg += "`r`n`r`n" + ($verify.Failed -join "`r`n")
+        try { [System.Windows.Forms.MessageBox]::Show($vMsg, (Get-T "Error"), 'OK', 'Error') } catch {}
+    }
+    return ($errCnt -eq 0 -and $verify.Failed.Count -eq 0)
 }
 
 $BtnCreateDBNow = New-Button (Get-T "DB_CreateNow") 10 524 350 38 $Global:ColorAccent2

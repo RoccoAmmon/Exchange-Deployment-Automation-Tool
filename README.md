@@ -88,7 +88,7 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 ### Datenbank-Generator
 - Postfach-Datenbanken per Präfix + Startnummer + Anzahl generieren
 - **Vorschau vollständig editierbar** – EDB- und Log-Pfade pro Zeile direkt anpassbar
-- Datenbanken werden inkl. Verzeichniserstellung und Mount automatisch angelegt
+- Datenbanken werden inkl. Verzeichniserstellung automatisch angelegt; danach wird der Informationsspeicher (`MSExchangeIS`) automatisch neu gestartet, die neuen DBs gemountet und alle gelisteten Datenbanken geprüft (Existenz, Mount-Status, EDB-Datei/Log-Ordner, MAPI-Erreichbarkeit) – nicht OK Datenbanken werden per Popup mit den betroffenen Namen gemeldet und ins Log geschrieben
 
 ### Live-Fortschrittsanzeige
 - Fortschrittsbalken mit den **14 Installationsphasen** im Tab „Ausführung und Log“
