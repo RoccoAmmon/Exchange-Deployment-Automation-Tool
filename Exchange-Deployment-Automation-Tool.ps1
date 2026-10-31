@@ -1,7 +1,7 @@
 ﻿# ============================================================
 # AUTO-ELEVATION
 # ============================================================
-param([switch]$Elevated, [string]$ForceLang = "")
+param([switch]$Elevated, [string]$ForceLang = "", [switch]$NoUpdateCheck, [switch]$NoSelfUpdate)
 
 function Test-IsAdmin {
     try {
@@ -27,6 +27,8 @@ if (-not (Test-IsAdmin)) {
     try {
         $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $scriptPath + '"'),'-Elevated')
         if ($ForceLang) { $argList += @('-ForceLang', $ForceLang) }
+        if ($NoUpdateCheck) { $argList += '-NoUpdateCheck' }
+        if ($NoSelfUpdate)  { $argList += '-NoSelfUpdate' }
         Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $argList -WorkingDirectory (Get-Location).Path -ErrorAction Stop
         exit 0
     } catch {
@@ -102,6 +104,15 @@ Start-Sleep -Milliseconds 600
         Erzwingt eine bestimmte Sprache: "de" für Deutsch, "en" für English
         Standard: Auto-Detection basierend auf Systemsprache
 
+    -NoUpdateCheck
+        Unterdrückt den Update-Check gegen die GitLab-Releases-API
+        (für Airgap-/Offline-Umgebungen; kein Netzwerkzugriff, kein Hinweis)
+
+    -NoSelfUpdate
+        Verbietet das Selbst-Update (Datei wird zentral verteilt / per GPO
+        bereitgestellt). Der Update-Hinweis bleibt sichtbar, es wird aber
+        nichts installiert - ein Klick meldet nur den gesperrten Zustand
+
 .BEISPIELE
     # Standardausführung (Auto-Elevation mit Deutsch/English Auto-Detection)
     .\Exchange-Deployment-Automation-Tool.ps1
@@ -111,6 +122,12 @@ Start-Sleep -Milliseconds 600
 
     # Erzwinge English
     .\Exchange-Deployment-Automation-Tool.ps1 -ForceLang "en"
+
+    # Ohne Update-Check (Offline-Umgebung)
+    .\Exchange-Deployment-Automation-Tool.ps1 -NoUpdateCheck
+
+    # Update-Hinweis anzeigen, aber Selbst-Update sperren
+    .\Exchange-Deployment-Automation-Tool.ps1 -NoSelfUpdate
 
     # Mit Rechtsklick "Mit PowerShell ausführen" (empfohlen)
     # -> Automatische Admin-Elevation + Sprach-Auto-Detection
@@ -650,6 +667,18 @@ $Global:FormHeight         = 820
 # Design-Proportionen des Formulars (ClientArea) fuer das responsive Layout
 $Global:ResizeDesignW      = 0
 $Global:ResizeDesignH      = 0
+# Zentrale Skriptversion - MASSGEBLICH fuer Versionsvergleich im Update-Check,
+# AppSubtitle und Config-Export. Beim Release wird NUR dieser Wert angepasst
+# (Tag muss "v" + diesen Wert sein, sonst meldet der Update-Check ewig ein Update).
+$Global:ScriptVersion      = "1.5"
+# Update-Verhalten per Startparameter steuerbar (siehe .PARAMETER im Header):
+# -NoUpdateCheck => garantiert kein Netzwerk-Check (Airgap/Offline),
+# -NoSelfUpdate  => Hinweis bleibt sichtbar, aber nichts wird installiert
+$Global:NoUpdateCheck      = [bool]$NoUpdateCheck
+$Global:NoSelfUpdate       = [bool]$NoSelfUpdate
+# Startparameter merken - der Update-Neustart muss dieselbe Sprache und
+# dieselben Update-Schalter mitfuehren wie der laufende Aufruf
+$Global:InitForceLang      = $ForceLang
 
 # Phasenmodell fuer die Setup-Fortschrittsanzeige.
 # MASSGEBLICH sind die Top-Level-Tasks aus ExchangeSetup.log:
@@ -705,7 +734,7 @@ $Global:FontMono    = New-Object System.Drawing.Font("Consolas", 9)
 #region ============================ SPRACHEN / I18N ============================
 $Global:Texts = @{
     DE = @{
-        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.5  |  Rocco Ammon"
+        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v$($Global:ScriptVersion)  |  Rocco Ammon"
         TabPrereq="  Voraussetzungen  "; TabAD="  AD-Vorbereitung  "; TabInstall="  Installation  "
         TabSec="  Sicherheit / TLS  "; TabSpam="  Antispam  "; TabDB="  Datenbanken  "
         TabDAG="  DAG  "; TabRun="  Ausfuehrung und Log  "; TabUrls="  URLs  "; TabCert="  Zertifikate  "
@@ -752,6 +781,13 @@ $Global:Texts = @{
         DB_Preview="Vorschau / Bearbeitbare Liste:"; DB_CreateNow="Datenbanken jetzt erstellen"
         DB_VerifyFail="Datenbank-Pruefung: {0} von {1} Datenbanken NICHT OK (nicht gemountet, fehlende Dateien oder MAPI nicht erreichbar). Details im Log."
         DB_EditionLimit="Datenbank-Limit: Exchange Server {0} Edition erlaubt maximal {1} gleichzeitig gemountete Datenbanken pro Server.`r`nAm Server sind aktuell {2} Datenbanken gemountet, {3} aus der Liste muessen noch gemountet werden (zusammen {4}). Bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken (Enterprise: 50) - Datenbanken ueber dem Limit koennen nicht gemountet werden und bleiben unmounted."
+        Update_Available="Update verfuegbar: {0}"
+        Update_Tooltip="Klicken: Update installieren. Rechtsklick: Release-Seite oeffnen."
+        Update_Disabled="Das Selbst-Update ist deaktiviert (-NoSelfUpdate)."
+        Update_Confirm="Update installieren? Die laufende Datei wird ersetzt (Backup neben dem Skript) und das Tool startet neu."
+        Update_Installing="Update wird installiert ..."
+        Update_Done="Das Update ist vorbereitet. Das Tool startet in wenigen Sekunden neu."
+        Update_Failed="Update nicht moeglich:"
         DAG_Settings="DAG-Grundeinstellungen"; DAG_Name="DAG-Name:"; DAG_Witness="Witness-Server:"
         DAG_WitnessDir="Witness-Verzeichnis:"; DAG_IP="DAG-IP-Adresse(n):"
         DAG_IPHint="(Mehrere IPs mit Komma trennen)"; DAG_IPless="IP-lose DAG (Exchange 2016+ empfohlen)"
@@ -824,7 +860,7 @@ $Global:Texts = @{
         PendingReboot_Starting="Der Server startet in 60 Sekunden neu.`r`nNach dem Neustart den Vorgang wiederholen."
     }
     EN = @{
-        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.5  |  Rocco Ammon"
+        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v$($Global:ScriptVersion)  |  Rocco Ammon"
         TabPrereq="  Prerequisites  "; TabAD="  AD Preparation  "; TabInstall="  Installation  "
         TabSec="  Security / TLS  "; TabSpam="  AntiSpam  "; TabDB="  Databases  "
         TabDAG="  DAG  "; TabRun="  Execution and Log  "; TabUrls="  URLs  "; TabCert="  Certificates  "
@@ -871,6 +907,13 @@ $Global:Texts = @{
         DB_Preview="Preview / Editable List:"; DB_CreateNow="Create databases now"
         DB_VerifyFail="Database verification: {0} of {1} databases NOT OK (not mounted, missing files or MAPI unreachable). See log for details."
         DB_EditionLimit="Database limit: Exchange Server {0} Edition allows a maximum of {1} mounted databases per server.`r`nCurrently {2} databases are mounted on the server, {3} from the list still need to be mounted (total {4}). On the Standard Edition the limit is 5 mounted databases (Enterprise: 50) - databases above the limit cannot be mounted and will stay unmounted."
+        Update_Available="Update available: {0}"
+        Update_Tooltip="Click: install update. Right click: open release page."
+        Update_Disabled="Self-update is disabled (-NoSelfUpdate)."
+        Update_Confirm="Install update? The running file will be replaced (backup next to the script) and the tool will restart."
+        Update_Installing="Installing update ..."
+        Update_Done="The update is prepared. The tool will restart in a few seconds."
+        Update_Failed="Update not possible:"
         DAG_Settings="DAG Base Settings"; DAG_Name="DAG Name:"; DAG_Witness="Witness Server:"
         DAG_WitnessDir="Witness Directory:"; DAG_IP="DAG IP Address(es):"
         DAG_IPHint="(Separate multiple IPs with comma)"; DAG_IPless="IP-less DAG (recommended Exchange 2016+)"
@@ -1093,6 +1136,320 @@ function Write-Log {
         try { [System.Windows.Forms.Application]::DoEvents() } catch {}
     } catch {}
 }
+#endregion
+
+#region ============= UPDATE-CHECK (GitLab Releases) ==========================
+
+# Update-Quelle: GitLab-Releases des Projekts (Releases existieren dort wie auf
+# GitHub; die Self-Update-Pruefung braucht ohnehin die GitLab-Files-API, weil
+# NUR dort content_sha256 fuer den Download-Verifikations-Check geliefert wird).
+$Global:GitLabProjectId  = '87360926'
+$Global:UpdateCheckUrl   = "https://gitlab.com/api/v4/projects/$($Global:GitLabProjectId)/releases?per_page=1&order_by=released_at&sort=desc"
+$Global:GitLabReleaseUrl = 'https://gitlab.com/RoccoAmmon/Exchange-Deployment-Automation-Tool/-/releases/'
+
+function Start-UpdateCheckAsync {
+    <#
+        Startet den Update-Check in einem eigenen Runspace, damit die GUI nie
+        einfriert. Netzwerkfehler, Offline, Proxy-Sperren und TLS-Probleme
+        werden verschluckt - der Update-Check darf den Tool-Start NIE
+        verzoegern oder abbrechen (Timeouts: 3 Versuche a 3 s + 750 ms Pause).
+        Versionen werden ueber die Ziffern vergleichen ([version]'v1.6' wirft
+        eine Ausnahme - der Vergleich muesste sonst taggenau aufgebaut sein).
+        Liefert PSCustomObject: Handle (IAsyncResult), PowerShell (Instanz
+        zum Aufraeumen) - das Ergebnis holt ein WinForms-Timer per EndInvoke.
+    #>
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript({
+        param($url, $releaseBase, $currentTag)
+        $out = [PSCustomObject]@{ LatestTag = $null; Url = $null; UpdateAvailable = $false }
+        try {
+            # Windows PowerShell 5.1 wuerde sonst nur TLS 1.0/1.1 anbieten
+            [Net.ServicePointManager]::SecurityProtocol =
+                [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            $latest = $null
+            for ($attempt = 1; $attempt -le 3 -and -not $latest; $attempt++) {
+                if ($attempt -gt 1) { Start-Sleep -Milliseconds 750 }
+                try { $latest = Invoke-RestMethod -Uri $url -TimeoutSec 3 -ErrorAction Stop | Select-Object -First 1 } catch { }
+            }
+            if ($latest) {
+                $out.LatestTag = [string]$latest.tag_name
+                if ($out.LatestTag) { $out.Url = $releaseBase + $out.LatestTag }
+                $newVer = if ($out.LatestTag -match '(?<ver>\d+(?:\.\d+)*)') { [version]$matches['ver'] } else { $null }
+                $curVer = if ($currentTag -match '(?<ver>\d+(?:\.\d+)*)') { [version]$matches['ver'] } else { $null }
+                if ($newVer -and $curVer -and $newVer -gt $curVer) { $out.UpdateAvailable = $true }
+            }
+        } catch { }
+        return $out
+    }).AddArgument($Global:UpdateCheckUrl).AddArgument($Global:GitLabReleaseUrl).AddArgument("v$Global:ScriptVersion")
+    return [PSCustomObject]@{ Handle = $ps.BeginInvoke(); PowerShell = $ps }
+}
+
+#endregion
+
+#region ============= SELF-UPDATE (Download / Ersetzen / Neustart) ============
+
+# Metadaten-URL der Skriptdatei in der GitLab-Files-API: die Antwort enthaelt
+# size und content_sha256 - damit laesst sich der Download pruefen, BEFOR
+# irgendetwas ersetzt wird. Log fuer den Helferprozess liegt in %TEMP%.
+$Global:GitLabFileApi  = "https://gitlab.com/api/v4/projects/$($Global:GitLabProjectId)/repository/files/Exchange-Deployment-Automation-Tool.ps1"
+$Global:SelfUpdateLog  = Join-Path $env:TEMP 'Exchange_Update.log'
+
+# Helferprozess: wartet auf das Ende der laufenden Instanz, ersetzt die Datei,
+# prueft den Hash und startet das Skript neu. Als here-string, damit er ohne
+# weitere Abhaengigkeiten in %TEMP% geschrieben werden kann. Eine laufende
+# .ps1-Datei laesst sich naemlich nicht zuverlaessig ueberschreiben - deshalb
+# Trennung von Download/Pruefung (im Skript) und Austausch (im Helfer).
+$Global:SelfUpdateHelperScript = @'
+param([Parameter(Mandatory)][string]$Job)
+
+$ErrorActionPreference = 'Stop'
+
+# Wird der Helfer aus PowerShell 7 heraus gestartet, erbt Windows PowerShell 5.1
+# dessen PSModulePath und findet die eigenen Module nicht. Pfad daher zuruecksetzen.
+if ($PSVersionTable.PSVersion.Major -le 5) {
+    $env:PSModulePath = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules') + ';' +
+                        (Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules')
+}
+
+$j = Import-Clixml -LiteralPath $Job
+function Write-UpdateLog([string]$m) {
+    try { Add-Content -LiteralPath $j.Log -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m) -ErrorAction Stop } catch { }
+}
+function Get-FileSha256([string]$Path) {
+    # Bewusst .NET statt Get-FileHash: unabhaengig von Modul-Autoloading
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [System.IO.File]::OpenRead($Path)
+        try { return ([System.BitConverter]::ToString($sha.ComputeHash($fs)) -replace '-', '').ToLowerInvariant() }
+        finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
+Write-UpdateLog ("Helfer gestartet (PID {0}); warte auf PID {1}" -f $PID, $j.Pid)
+
+# Erst wenn die aufrufende Instanz beendet ist, ist die Zieldatei sicher frei.
+if ($j.Pid -gt 0) {
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 60) {
+        if (-not (Get-Process -Id $j.Pid -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Milliseconds 300
+    }
+    Start-Sleep -Milliseconds 400
+}
+
+# Kopieren mit Wiederholung: Virenscanner und OneDrive sperren Dateien kurzzeitig.
+$copied = $false
+for ($i = 1; $i -le 10; $i++) {
+    try {
+        Copy-Item -LiteralPath $j.Source -Destination $j.Target -Force -ErrorAction Stop
+        $hash = Get-FileSha256 $j.Target
+        if ($hash -eq $j.Sha256.ToLowerInvariant()) { $copied = $true; break }
+        Write-UpdateLog ("Hash nach Kopie weicht ab (Versuch {0})" -f $i)
+    } catch {
+        Write-UpdateLog ("Kopierversuch {0} fehlgeschlagen: {1}" -f $i, $_.Exception.Message)
+    }
+    Start-Sleep -Milliseconds 700
+}
+
+if (-not $copied) {
+    Write-UpdateLog 'Update fehlgeschlagen - Backup wird zurueckgespielt.'
+    try {
+        if ($j.Backup -and (Test-Path -LiteralPath $j.Backup)) {
+            Copy-Item -LiteralPath $j.Backup -Destination $j.Target -Force -ErrorAction Stop
+            Write-UpdateLog 'Backup wiederhergestellt.'
+        }
+    } catch { Write-UpdateLog ("Rollback fehlgeschlagen: {0}" -f $_.Exception.Message) }
+    exit 1
+}
+Write-UpdateLog ("Datei ersetzt: {0}" -f $j.Target)
+
+if ($j.Restart) {
+    try {
+        Start-Process -FilePath $j.Exe -ArgumentList $j.Arguments -WorkingDirectory (Split-Path -Parent $j.Target) -ErrorAction Stop
+        Write-UpdateLog ("Neustart gestartet: {0} {1}" -f $j.Exe, $j.Arguments)
+    } catch {
+        Write-UpdateLog ("Neustart fehlgeschlagen: {0}" -f $_.Exception.Message)
+        exit 2
+    }
+}
+
+Remove-Item -LiteralPath $Job -Force -ErrorAction SilentlyContinue
+exit 0
+'@
+
+function Get-UpdatePackageInfo {
+    <#
+        Holt Groesse und SHA-256 der Skriptdatei eines Tags aus der GitLab-Files-API.
+    #>
+    param([Parameter(Mandatory)][string]$Tag)
+    $u = "$($Global:GitLabFileApi)?ref=$([uri]::EscapeDataString($Tag))"
+    $m = Invoke-RestMethod -Uri $u -TimeoutSec 15 -ErrorAction Stop
+    [pscustomobject]@{
+        Size   = [int64]$m.size
+        Sha256 = ([string]$m.content_sha256).ToLowerInvariant()
+        Commit = [string]$m.last_commit_id
+    }
+}
+
+function Save-UpdatePackage {
+    <#
+        Laedt die Skriptdatei eines Tags nach $Path (ohne Ausfuehrung).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][string]$Path
+    )
+    $u = "$($Global:GitLabFileApi)/raw?ref=$([uri]::EscapeDataString($Tag))"
+    $old = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        Invoke-WebRequest -Uri $u -OutFile $Path -TimeoutSec 60 -UseBasicParsing -ErrorAction Stop
+    } finally { $ProgressPreference = $old }
+    return $Path
+}
+
+function Test-UpdatePackage {
+    <#
+        Prueft ein heruntergeladenes Paket, OHNE es auszufuehren.
+        Reihenfolge: Datei vorhanden -> Groesse -> SHA-256 -> Syntax -> Version.
+        Jede Stufe liefert bei einem Problem einen sprechenden Grund zurueck.
+        Liefert PSCustomObject: Ok, Reason, Version, Sha256.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$ExpectedSha256 = '',
+        [int64]$ExpectedSize = 0,
+        [string]$CurrentVersion = $Global:ScriptVersion
+    )
+    $r = [pscustomobject]@{ Ok = $false; Reason = ''; Version = ''; Sha256 = '' }
+    if (-not (Test-Path -LiteralPath $Path)) { $r.Reason = 'Datei fehlt'; return $r }
+    $fi = Get-Item -LiteralPath $Path
+    if ($fi.Length -le 0) { $r.Reason = 'Datei ist leer'; return $r }
+    if ($ExpectedSize -gt 0 -and $fi.Length -ne $ExpectedSize) {
+        $r.Reason = "Groesse weicht ab (erwartet $ExpectedSize, erhalten $($fi.Length))"; return $r
+    }
+    $sha = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $r.Sha256 = $sha
+    if ($ExpectedSha256 -and $sha -ne $ExpectedSha256.ToLowerInvariant()) {
+        $r.Reason = 'SHA-256 weicht ab'; return $r
+    }
+    $errs = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs -and $errs.Count -gt 0) {
+        $r.Reason = "Syntaxfehler ($($errs.Count)): $($errs[0].Message)"; return $r
+    }
+    $txt = [System.IO.File]::ReadAllText($Path)
+    $m = [regex]::Match($txt, '\$Global:ScriptVersion\s*=\s*"([0-9][0-9\.]*)"')
+    if (-not $m.Success) { $r.Reason = 'Versionsangabe nicht gefunden'; return $r }
+    $r.Version = $m.Groups[1].Value
+    if (-not ($r.Version -as [version])) { $r.Reason = 'Versionsangabe unlesbar'; return $r }
+    if ([version]$r.Version -le [version]$CurrentVersion) {
+        $r.Reason = "Version $($r.Version) ist nicht neuer als $CurrentVersion"; return $r
+    }
+    $r.Ok = $true
+    return $r
+}
+
+function Install-SelfUpdate {
+    <#
+        Laedt die angegebene Version, prueft sie, ersetzt die laufende Datei
+        und startet das Tool neu. Es wird NICHTS ersetzt, bevor Download,
+        SHA-256, Syntax und Version geprueft sind. Vor dem Austausch entsteht
+        ein Backup neben dem Skript; der Austausch selbst laeuft im Helfer-
+        prozess (laufende Datei nicht zuverlaessig ueberschreibbar).
+        Liefert PSCustomObject: Started, Reason, Target, Backup, Version.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Tag,
+        [switch]$NoRestart
+    )
+    $res = [pscustomobject]@{ Started = $false; Reason = ''; Target = ''; Backup = ''; Version = '' }
+    if ($Global:NoSelfUpdate) { $res.Reason = 'Self-Update ist deaktiviert (-NoSelfUpdate)'; return $res }
+    $target = $PSCommandPath
+    if (-not $target) { $res.Reason = 'Skriptpfad nicht ermittelbar'; return $res }
+    $target = [System.IO.Path]::GetFullPath($target)
+    $res.Target = $target
+    $dir = Split-Path -Parent $target
+
+    # Schreibrechte vorher pruefen - lieber sauber abbrechen als halb ersetzen.
+    try {
+        $probe = Join-Path $dir (".exchange_update_write_{0}.tmp" -f [guid]::NewGuid().ToString('N').Substring(0, 6))
+        Set-Content -LiteralPath $probe -Value 'probe' -ErrorAction Stop
+        Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
+    } catch {
+        $res.Reason = "Zielordner nicht beschreibbar: $dir"; return $res
+    }
+
+    # 1) Metadaten + Download
+    $temp = Join-Path $env:TEMP ("Exchange_Update_{0}.ps1" -f $Tag)
+    try {
+        $meta = Get-UpdatePackageInfo -Tag $Tag
+        [void](Save-UpdatePackage -Tag $Tag -Path $temp)
+    } catch {
+        $res.Reason = "Download fehlgeschlagen: $($_.Exception.Message)"; return $res
+    }
+
+    # 2) Paket pruefen (Groesse, Hash, Syntax, Version)
+    $chk = Test-UpdatePackage -Path $temp -ExpectedSha256 $meta.Sha256 -ExpectedSize $meta.Size
+    if (-not $chk.Ok) { $res.Reason = "Paket abgelehnt: $($chk.Reason)"; return $res }
+    $res.Version = $chk.Version
+
+    # 3) Backup der laufenden Datei
+    $backup = "$target.bak-$($Global:ScriptVersion)"
+    try {
+        Copy-Item -LiteralPath $target -Destination $backup -Force -ErrorAction Stop
+        $res.Backup = $backup
+    } catch {
+        $res.Reason = "Backup fehlgeschlagen: $($_.Exception.Message)"; return $res
+    }
+
+    # 4) Helferprozess vorbereiten: welcher Host fuehrt das Skript aus?
+    $exe = $null
+    try { $exe = (Get-Process -Id $PID).Path } catch { }
+    if (-not $exe -or $exe -match '(?i)powershell_ise|Code\.exe|WindowsTerminal|openconsole') {
+        $exe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    }
+    if (-not (Test-Path -LiteralPath $exe)) { $exe = 'powershell.exe' }
+    # Neustart mit den Startparametern des laufenden Aufrufs - OHNE -Elevated:
+    # der Helfer erbt das Admin-Token des (immer elevated) Tools, der neue
+    # Prozess ist also automatisch elevated; braucht er es doch nicht, greift
+    # die normale Auto-Elevation des Skripts (UAC-Abfrage statt Fehler-Exit).
+    $restartArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $target + '"'
+    if ($Global:InitForceLang)   { $restartArgs += ' -ForceLang "' + $Global:InitForceLang + '"' }
+    if ($Global:NoUpdateCheck)   { $restartArgs += ' -NoUpdateCheck' }
+    if ($Global:NoSelfUpdate)    { $restartArgs += ' -NoSelfUpdate' }
+    $jobPath    = Join-Path $env:TEMP ("Exchange_Update_{0}.job.xml" -f $Tag)
+    $helperPath = Join-Path $env:TEMP ("Exchange_Update_{0}.helper.ps1" -f $Tag)
+    $job = [pscustomobject]@{
+        Pid       = $PID
+        Source    = $temp
+        Target    = $target
+        Sha256    = $chk.Sha256
+        Backup    = $backup
+        Exe       = $exe
+        Arguments = $restartArgs
+        Restart   = (-not $NoRestart)
+        Log       = $Global:SelfUpdateLog
+    }
+    try {
+        $job | Export-Clixml -LiteralPath $jobPath -ErrorAction Stop
+        Set-Content -LiteralPath $helperPath -Value $Global:SelfUpdateHelperScript -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        $res.Reason = "Helfer konnte nicht vorbereitet werden: $($_.Exception.Message)"; return $res
+    }
+
+    # 5) Helfer starten - er wartet auf das Ende dieser Instanz
+    $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden',
+                '-File', ('"{0}"' -f $helperPath), '-Job', ('"{0}"' -f $jobPath))
+    try {
+        Start-Process -FilePath $exe -ArgumentList $psArgs -WindowStyle Hidden -ErrorAction Stop
+    } catch {
+        $res.Reason = "Helfer konnte nicht gestartet werden: $($_.Exception.Message)"; return $res
+    }
+    $res.Started = $true
+    return $res
+}
+
 #endregion
 
 #region ============================ SETUP-FORTSCHRITT ============================
@@ -4775,6 +5132,93 @@ $LblSub.Size=New-Object System.Drawing.Size(180,20)
 $LblSub.AutoEllipsis=$true
 $LblSub.TextAlign="MiddleLeft"; $LblSub.BackColor=[System.Drawing.Color]::Transparent
 $HeaderPanel.Controls.Add($LblSub)
+
+# === UPDATE-BADGE IM HEADER ==============================================
+# Asynchroner Update-Check gegen die GitLab-Releases-API (Region UPDATE-CHECK):
+# der Netzwerk-Call laeuft in einem eigenen Runspace, ein WinForms-Timer pollt
+# das Ergebnis - die GUI friert nie ein, und Offline/Proxy-Sperren bleiben ohne
+# Wirkung (es erscheint einfach kein Badge). Sichtbar wird nur die Zeile
+# "Update verfuegbar: vX.Y"; LINKS-Klick installiert (Self-Update), RECHTS-
+# Klick oeffnet die Release-Seite. Shared State als Hashtable - Hashtable-
+# Zugriffe funktionieren zuverlaessig in WinForms-Eventhandlern.
+$Global:UpdateState = @{ Task = $null; Timer = $null; Url = $null; Tag = $null }
+$Global:UpdateToolTip = New-Object System.Windows.Forms.ToolTip
+
+$Global:LblUpdate = New-Object System.Windows.Forms.Label
+$Global:LblUpdate.Text = ""
+$Global:LblUpdate.Visible = $false
+$Global:LblUpdate.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Bold)
+$Global:LblUpdate.ForeColor = [System.Drawing.Color]::Black
+$Global:LblUpdate.BackColor = [System.Drawing.Color]::FromArgb(255, 196, 0)   # Amber - faellt auf, blendet aber nicht den Titel ueber
+$Global:LblUpdate.Location = New-Object System.Drawing.Point(730, 45)          # direkt unter $LblSub, innerhalb des 65px-Headers
+$Global:LblUpdate.Size = New-Object System.Drawing.Size(210, 17)
+$Global:LblUpdate.TextAlign = "MiddleCenter"
+$Global:LblUpdate.BorderStyle = "FixedSingle"
+$Global:LblUpdate.Cursor = [System.Windows.Forms.Cursors]::Hand
+$HeaderPanel.Controls.Add($Global:LblUpdate)
+
+if (-not $Global:NoUpdateCheck) {
+    $Global:UpdateState.Task  = Start-UpdateCheckAsync
+    $Global:UpdateState.Timer = New-Object System.Windows.Forms.Timer
+    $Global:UpdateState.Timer.Interval = 400
+    $Global:UpdateState.Timer.Add_Tick({
+        $t = $Global:UpdateState.Task
+        if ($null -eq $t -or -not $t.Handle.IsCompleted) { return }
+        $Global:UpdateState.Timer.Stop()
+        $info = $null
+        try { $info = @($t.PowerShell.EndInvoke($t.Handle)) | Select-Object -First 1 } catch {}
+        try { $t.PowerShell.Dispose() } catch {}
+        $Global:UpdateState.Task = $null
+        if ($info -and $info.UpdateAvailable) {
+            $Global:UpdateState.Url = $info.Url
+            $Global:UpdateState.Tag = $info.LatestTag
+            $Global:LblUpdate.Text       = (Get-T "Update_Available") -f $info.LatestTag
+            $Global:UpdateToolTip.SetToolTip($Global:LblUpdate, (Get-T "Update_Tooltip"))
+            $Global:LblUpdate.Visible = $true
+            try {
+                Write-Log ("Update available: " + $info.LatestTag + " (running " + $Global:ScriptVersion + ") - click the update badge in the header to install / Update verfuegbar - Badge im Header anklicken") -Level INFO
+            } catch {}
+        }
+    })
+    # Tick erst, wenn die Message-Loop laeuft (Badge-Positionierung/Log sind dann bereit)
+    $Global:UpdateState.Timer.Start()
+}
+
+$Global:LblUpdate.Add_MouseDown({
+    param($s, $e)
+    $st = $Global:UpdateState
+    if ($e.Button -eq 'Right') {
+        if ($st.Url) { try { Start-Process $st.Url } catch {} }
+        return
+    }
+    if ($e.Button -ne 'Left') { return }
+    $tag = $st.Tag
+    if (-not $tag) { return }
+    if ($Global:NoSelfUpdate) {
+        [void][System.Windows.Forms.MessageBox]::Show((Get-T "Update_Disabled"), (Get-T "AppTitle"), 'OK', 'Information')
+        return
+    }
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        ((Get-T "Update_Confirm") + "`r`n`r`n" + $tag),
+        (Get-T "AppTitle"), 'YesNo', 'Question')
+    if ($answer -ne 'Yes') { return }
+    $Global:LblUpdate.Enabled = $false
+    $Global:LblUpdate.Text = (Get-T "Update_Installing")
+    try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+    $res = Install-SelfUpdate -Tag $tag
+    if ($res.Started) {
+        [void][System.Windows.Forms.MessageBox]::Show((Get-T "Update_Done"), (Get-T "AppTitle"), 'OK', 'Information')
+        # Helfer wartet auf das Ende dieser Instanz, ersetzt die Datei (mit
+        # Hash-Pruefung/Rollback) und startet das Tool mit denselben Parametern neu
+        $Form.Close()
+        return
+    }
+    $Global:LblUpdate.Enabled = $true
+    $Global:LblUpdate.Text = (Get-T "Update_Available") -f $tag
+    [void][System.Windows.Forms.MessageBox]::Show(
+        ((Get-T "Update_Failed") + " " + $res.Reason),
+        (Get-T "AppTitle"), 'OK', 'Error')
+})
 $Form.Controls.Add($HeaderPanel)
 
 $TabControl = New-Object System.Windows.Forms.TabControl
@@ -6693,7 +7137,7 @@ $BtnSaveCfg.Add_Click({
         $dagMembers = @($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
         $cfg = @{
-            Version = "1.5"
+            Version = $Global:ScriptVersion
             Language = $Global:CurrentLang
             Saved = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
             ISO = @{
@@ -7654,7 +8098,7 @@ $Form.Add_Shown({
 
 #region ============================ GUI START ============================
 try {
-    Write-Log ("Microsoft Exchange SE Configuration Center v1.5 started") -Level INFO
+    Write-Log ("Microsoft Exchange SE Configuration Center v" + $Global:ScriptVersion + " started") -Level INFO
     # Welche Kopie des Skripts laeuft? Eine laufende Sitzung laedt die Datei nur
     # einmal beim Start - Pfad + Aenderungszeit machen veraltete Stände (Sync,
     # gestartete Altinstanzen) in jedem Log sofort sichtbar.
@@ -7670,6 +8114,14 @@ try {
     Write-Log ("Language: " + $Global:CurrentLang) -Level INFO
     Write-Log ("Log file: " + $Global:LogFile) -Level INFO
     Write-Host "@@DIAG@@ [5/7] vor ShowDialog (GUI-Fenster muss gleich erscheinen)" -ForegroundColor DarkGray
+    $Form.Add_FormClosing({
+        # Beim Schließen (z. B. X-Klick) den laufenden Update-Check-Timer
+        # und das Runspace sauber beenden - sonst laufen Reste im Hintergrund
+        try {
+            if ($Global:UpdateState.Timer) { $Global:UpdateState.Timer.Stop(); $Global:UpdateState.Timer.Dispose() }
+        } catch {}
+        try { if ($Global:UpdateState.Task -and $Global:UpdateState.Task.PowerShell) { $Global:UpdateState.Task.PowerShell.Dispose() } } catch {}
+    })
     [void]$Form.ShowDialog()
     Write-Log "GUI closed" -Level INFO
 }

@@ -5,7 +5,7 @@
 ![Status: Production](https://img.shields.io/badge/Status-Production-brightgreen)
 ![Version: 1.5](https://img.shields.io/badge/Version-1.5-blue)
 
-**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive Live-Fortschrittsanzeige der 14 Installationsphasen (je Setup-Task eine Zeile mit OK), URL-Übernahme vom bestehenden Exchange, Zertifikats-Center (Import / AD-CS / selbstsigniert mit SAN-Liste), automatischer AD-Prep-Ergebniskontrolle, korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
+**Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive automatischem Update-Check & Selbst-Update (GitLab Releases), Live-Fortschrittsanzeige der 14 Installationsphasen (je Setup-Task eine Zeile mit OK), URL-Übernahme vom bestehenden Exchange, Zertifikats-Center (Import / AD-CS / selbstsigniert mit SAN-Liste), automatischer AD-Prep-Ergebniskontrolle, korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
 
 ---
 
@@ -89,6 +89,12 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 - Postfach-Datenbanken per Präfix + Startnummer + Anzahl generieren
 - **Vorschau vollständig editierbar** – EDB- und Log-Pfade pro Zeile direkt anpassbar
 - Datenbanken werden inkl. Verzeichniserstellung automatisch angelegt; danach wird der Informationsspeicher (`MSExchangeIS`) automatisch neu gestartet, die neuen DBs gemountet und alle gelisteten Datenbanken geprüft (Existenz, Mount-Status, EDB-Datei/Log-Ordner, MAPI-Erreichbarkeit) – nicht OK Datenbanken werden per Popup mit den betroffenen Namen gemeldet und ins Log geschrieben; beim Klick auf »Datenbanken jetzt erstellen« wechselt die GUI automatisch zum Reiter »Ausführung und Log«, damit der gesamte Ablauf live sichtbar ist. Vor dem Anlegen prüft das Tool das Editions-Limit der **gemounteten** Datenbanken: Es zählt die bereits am Server gemounteten DBs plus die aus der Liste noch zu mountenden und meldet erst bei Überschreitung per Warnung das Limit – die Standard Edition erlaubt nur 5 gleichzeitig gemountete Datenbanken pro Server (Enterprise: 50). DBs über dem Limit werden mit klarem Hinweis nicht gemountet, statt mit einem `TooManyMountedDatabases`-Fehler abzuspringen
+
+### Automatischer Update-Check & Selbst-Update
+- **Automatischer Update-Check beim Start**: Prüft im Hintergrund (eigener Runspace, friert die GUI nicht ein) gegen die GitLab-Releases-API (`RoccoAmmon/Exchange-Deployment-Automation-Tool`) auf neuere Releases
+- **Update-Badge im Header**: Bei neuerer Version erscheint ein klickbares amberfarbenes Badge `Update verfügbar: vX.Y` oben rechts im Header
+- **Einklick-Update (Self-Update)**: Linksklick lädt die neue Skriptdatei herunter, prüft **Größe, SHA-256-Hash, PowerShell-Syntax (Parser) und Versionsangabe**, legt ein Backup an (`Exchange-Deployment-Automation-Tool.ps1.bak-v1.5`) und startet das Tool per Helferprozess automatisch neu – Rechtsklick öffnet die Release-Seite für Release-Notes
+- **Steuerbar per Parameter**: `-NoUpdateCheck` unterdrückt den Netzwerkrebound (Airgap/Offline), `-NoSelfUpdate` zeigt den Hinweis, sperrt aber den Austausch (z. B. bei zentraler GPO-Verteilung)
 
 ### Live-Fortschrittsanzeige
 - Fortschrittsbalken mit den **14 Installationsphasen** im Tab „Ausführung und Log“
