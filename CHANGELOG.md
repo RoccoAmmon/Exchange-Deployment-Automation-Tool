@@ -7,6 +7,27 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
+# Changelog
+
+Alle wesentlichen Änderungen an diesem Projekt werden in dieser Datei dokumentiert.
+
+Format basierend auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
+versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
+
+---
+
+## [1.6] - 2026-11-01
+
+### ✨ Hinzugefügt
+- **Automatisches Update-Feature (GitLab Releases) – wie im AD Health Check**: Das Skript prüft beim Start (in einem eigenen Runspace, WinForms-Timer pollt das Ergebnis – die GUI friert nie ein, und Offline/Proxy-Sperren bleiben ohne Wirkung), ob auf der GitLab-Releases-Seite (`RoccoAmmon/Exchange-Deployment-Automation-Tool`, Projekt-ID 87360926) ein neueres Release existiert. Bei einer neueren Version erscheint ein **amberfarbenes Badge im Header** (unter der Versionszeile, y=45) mit der Meldung „Update verfügbar: vX.Y“ und dem Tooltip „Klicken: Update installieren. Rechtsklick: Release-Seite öffnen“ (neue i18n-Keys `Update_Available`/`Update_Tooltip`). **Linksklick** fragt per YesNo-MessageBox (i18n-Key `Update_Confirm`), ob das Update installiert werden soll; bei „Ja“ läuft die neue Funktion `Install-SelfUpdate`: sie holt die Skriptdatei des Tags über die GitLab-Files-API herunter, prüft Groesse + SHA-256 + Syntax (Parser) + Versionsangabe, ersetzt die laufende Datei (Backup `Exchange-Deployment-Automation-Tool.ps1.bak-v1.6` daneben) und startet das Tool mit denselben Startparametern neu. Der Austausch selbst läuft in einem Helferprozess (`%TEMP%\Exchange_Update_<Tag>.helper.ps1`), der auf das Ende der laufenden Instanz wartet, die Datei mit SHA-256-Verifikation kopiert (10 Versuche, Virenscanner/OneDrive-Blockade) und bei Misserfolg das Backup wiederherstellt. **Rechtsklick** öffnet die Release-Seite (z. B. für Release-Notes). Die beiden Startparameter `-NoUpdateCheck` (kein Netzwerk-Check, Airgap/Offline) und `-NoSelfUpdate` (Hinweis bleibt sichtbar, aber nichts wird installiert – z. B. bei GPO-Verteilung) wurden ergänzt; die zentrale Variable `$Global:ScriptVersion` („1.6“) steuert AppSubtitle, Config-Export, Start-Log und den Versionsvergleich – beim Release wird NUR dieser Wert angepasst (Tag muss „v“ + diesen Wert sein, sonst meldet der Update-Check ewig ein Update)
+
+### 🛠 Behoben
+- **Der DAG-Punkt bleibt im Skript erhalten und ist nur vorläufig ausgeblendet**: Weil die DAG-Funktion noch nicht richtig funktioniert, werden der Reiter „DAG“ und die Workflow-Option „DAG erstellen“ ausgeblendet (neue globale Variable `$Global:DagHidden = $true`) – der komplette DAG-Code bleibt unverändert im Skript. Dabei wird der Tab per `$TabIndex.TabPages.Remove($TabDAG)` aus der Reiterleiste entfernt, denn `浮游Page.Visible = $false` allein wird von WinForms ignoriert, solange das Control kein Handle hat (der Reiter blieb sonst sichtbar). Zusätzlich setzt das Laden alter Konfigurationen ein gehäktes `CreateDAG` wieder zurück, und STEP 8 prüft `-and -not $Global:DagHidden`, sodass die ausgeblendete Option nicht doch ausgeführt wird; zum Wiedereinschalten `DagHidden` auf `$false` setzen, den Tab mit `$TabIndex.TabPages.Insert(6, $TabDAG)` wieder einhängen, `CreateDAG` wieder sichtbar machen und den Guard bei STEP 8 entfernen (Anleitung als Kommentar bei der Erzeugung der Options-Checkboxen)
+- **„Datenbanken jetzt erstellen“ wechselt automatisch zum Reiter „Ausführung und Log“**: Der Button springt vor dem Anlegen zum Log-Tab (derselbe Mechanismus wie beim Workflow- und AD-Vorbereitungs-Button), sodass Anlage, Store-Neustart, Mount und anschließende Prüfung live mitlaufen statt unsichtbar im Hintergrund zu bleiben
+- **Der AD-Ergebnis-Report endete mit `Result check error: Der Wert "von" kann nicht in den Typ "System.Int32" konvertiert werden`**: `Write-ADPrepResultReport` baute die Abschlusszeile über `$Result.FailedCount + " von " + …` – links steht ein Int32, und PowerShell wandelt beim `+` den rechten Operanden in den Typ des linken, also `[int]"von"` → FormatException; der Report brach nach der letzten Detailzeile ab („fehlt auf: …“) und die Zeile „X von Y Pruefungen NICHT OK“ fehlte, der Fehler kam zweimal aus den catch-Blöcken von `Test-ADPrepResult` und `$Global:Script:RunAdPrepCheck`. Jetzt wird über den Formatoperator (`-f`) zusammengesetzt; der Fehlerfall ist gegen den exakten Meldungstext reproduziert und geprüft
+
+---
+
 ## [1.5] - 2026-10-31
 
 ### ✨ Hinzugefügt

@@ -215,6 +215,22 @@ Start-Sleep -Milliseconds 600
     • Support-Kanal (Email/Chat) bereithalten
 
 .CHANGELOG
+    1.6 (2026-11-01)
+    - Automatischer Update-Check (GitLab Releases) und Selbst-Update mit SHA-256-
+      Verifikation: bei einer neueren Version erscheint ein amberfarbenes Badge
+      im Header mit "Update verfuegbar: vX.Y"; Linksklick laedt das Update
+      (inkl. Backup-Erstellung) herunter und startet das Tool mit den gleichen
+      Parametern neu (Helferprozess in %TEMP% zur sicheren Dateiersetzung);
+      Startparameter -NoUpdateCheck (Airgap/Offline) und -NoSelfUpdate (nur
+      Hinweis, keine Installation) ergaenzt
+    - DAG vorlaeufig nur AUSBLENDEN (NICHT entfernt): Reiter "DAG" wird per
+      TabControl.TabPages.Remove($TabDAG) aus der Reiterleiste genommen
+      (Visible=$false reicht bei WinForms-TabPages nicht), Workflow-Option
+      "DAG erstellen" per Visible=$false versteckt (Global:DagHidden=$true);
+      Config-Laden setzt gehaektes CreateDAG zurueck, STEP 8 hat einen Guard
+      (-and -not DagHidden) - der komplette DAG-Code bleibt erhalten;
+      Wiedereinschalten wie im Kommentar bei der Options-Erzeugung beschrieben
+
     1.5 (2026-10-31)
     - Master-Workflow beginnt MIT der Exchange-Installation: die Optionen
       "Voraussetzungspruefung", "Voraussetzungen vorab installieren" und
@@ -670,7 +686,7 @@ $Global:ResizeDesignH      = 0
 # Zentrale Skriptversion - MASSGEBLICH fuer Versionsvergleich im Update-Check,
 # AppSubtitle und Config-Export. Beim Release wird NUR dieser Wert angepasst
 # (Tag muss "v" + diesen Wert sein, sonst meldet der Update-Check ewig ein Update).
-$Global:ScriptVersion      = "1.5"
+$Global:ScriptVersion      = "1.6"
 # Update-Verhalten per Startparameter steuerbar (siehe .PARAMETER im Header):
 # -NoUpdateCheck => garantiert kein Netzwerk-Check (Airgap/Offline),
 # -NoSelfUpdate  => Hinweis bleibt sichtbar, aber nichts wird installiert
