@@ -241,6 +241,13 @@ Start-Sleep -Milliseconds 600
     - Button "Datenbanken jetzt erstellen" springt vor dem Anlegen zum
       Reiter "Ausfuehrung und Log" - der gesamte Ablauf (Anlage,
       Store-Neustart, Mount, Pruefung) laeuft live mit
+    - Ab mehr als 5 Datenbanken in der Liste wird vor dem Anlegen die
+      Exchange-Edition geprueft (Get-ExchangeEdition: Get-ExchangeServer.
+      Edition, Registry 'Edition' unter ExchangeServer\V15, Uninstall-
+      DisplayName); Standard erlaubt max. 5 gemountete Datenbanken pro
+      Server (Enterprise: 50) - bei Ueberschreitung Warn-MessageBox
+      (i18n-Key DB_EditionLimit) + Log-Zeile, unbekannte Edition gibt
+      eine WARNING mit dem 5er-Hinweis
     - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
       "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
       die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
@@ -734,6 +741,7 @@ $Global:Texts = @{
         DB_Generate="Konfiguration generieren (Vorschau)"; DB_Clear="Liste leeren"
         DB_Preview="Vorschau / Bearbeitbare Liste:"; DB_CreateNow="Datenbanken jetzt erstellen"
         DB_VerifyFail="Datenbank-Pruefung: {0} von {1} Datenbanken NICHT OK (nicht gemountet, fehlende Dateien oder MAPI nicht erreichbar). Details im Log."
+        DB_EditionLimit="Datenbank-Limit: Exchange Server {0} Edition erlaubt maximal {1} gleichzeitig gemountete Datenbanken pro Server.`r`nDie Liste enthaelt {2} Datenbanken. Bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken (Enterprise: 50) - Datenbanken ueber dem Limit koennen nicht gemountet werden und werden bei der Pruefung als NOT OK gemeldet."
         DAG_Settings="DAG-Grundeinstellungen"; DAG_Name="DAG-Name:"; DAG_Witness="Witness-Server:"
         DAG_WitnessDir="Witness-Verzeichnis:"; DAG_IP="DAG-IP-Adresse(n):"
         DAG_IPHint="(Mehrere IPs mit Komma trennen)"; DAG_IPless="IP-lose DAG (Exchange 2016+ empfohlen)"
@@ -852,6 +860,7 @@ $Global:Texts = @{
         DB_Generate="Generate config (Preview)"; DB_Clear="Clear list"
         DB_Preview="Preview / Editable List:"; DB_CreateNow="Create databases now"
         DB_VerifyFail="Database verification: {0} of {1} databases NOT OK (not mounted, missing files or MAPI unreachable). See log for details."
+        DB_EditionLimit="Database limit: Exchange Server {0} Edition allows a maximum of {1} mounted databases per server.`r`nThe list contains {2} databases. On the Standard Edition the limit is 5 mounted databases (Enterprise: 50) - databases above the limit cannot be mounted and will be reported NOT OK by the verification."
         DAG_Settings="DAG Base Settings"; DAG_Name="DAG Name:"; DAG_Witness="Witness Server:"
         DAG_WitnessDir="Witness Directory:"; DAG_IP="DAG IP Address(es):"
         DAG_IPHint="(Separate multiple IPs with comma)"; DAG_IPless="IP-less DAG (recommended Exchange 2016+)"
@@ -5459,6 +5468,44 @@ foreach ($col in @(@{Name="DBName";Header="DB Name"},@{Name="Server";Header="Ser
 }
 $TabDB.Controls.Add($Global:DgvDB)
 
+function Get-ExchangeEdition {
+    <#
+        Ermittelt die Exchange-Edition (Standard/Enterprise) des lokalen
+        Servers - die Standard Edition erlaubt nur 5 gleichzeitig
+        gemountete Datenbanken pro Server (Enterprise: 50). Ausgewertet
+        werden mehrere Quellen, weil der Property-Name je nach Version/CU
+        variieren kann:
+        1) Get-ExchangeServer -> .Edition
+        2) Registry-Wert 'Edition' unter ExchangeServer\V15 (Mailbox/Setup)
+        3) Uninstall-DisplayName (enthaelt 'Standard'/'Enterprise')
+        Rueckgabe: 'Standard' | 'Enterprise' | 'Unknown'
+    #>
+    try {
+        $s = Get-ExchangeServer $env:COMPUTERNAME -ErrorAction Stop
+        $e = "$($s.PSObject.Properties['Edition'].Value)"
+        if ($e -match 'Enterprise') { return 'Enterprise' }
+        if ($e -match 'Standard')   { return 'Standard' }
+    } catch {}
+    try {
+        foreach ($k in @('HKLM:\SOFTWARE\Microsoft\ExchangeServer\V15\Mailbox','HKLM:\SOFTWARE\Microsoft\ExchangeServer\V15\Setup')) {
+            $v = Get-ItemProperty -Path $k -Name 'Edition' -ErrorAction SilentlyContinue
+            if ($v -and $v.Edition -match 'Enterprise') { return 'Enterprise' }
+            if ($v -and $v.Edition -match 'Standard')   { return 'Standard' }
+        }
+    } catch {}
+    try {
+        $apps = @()
+        $apps += Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue
+        $apps += Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue
+        foreach ($a in $apps) {
+            $dn = "$($a.DisplayName)"
+            if ($dn -match 'Exchange' -and $dn -match 'Enterprise') { return 'Enterprise' }
+            if ($dn -match 'Exchange' -and $dn -match 'Standard')   { return 'Standard' }
+        }
+    } catch {}
+    return 'Unknown'
+}
+
 function Restart-ExchangeInformationStore {
     <#
         Startet den Microsoft Exchange Informationsspeicher-Dienst (MSExchangeIS)
@@ -5559,6 +5606,23 @@ function Invoke-DatabaseCreation {
     if (-not (Import-ExchangeManagementShell)) {
         Write-Log "Exchange Management Shell could not be loaded - database step SKIPPED / Exchange-Verwaltungsshell nicht ladbar - Datenbank-Schritt uebersprungen" -Level ERROR
         return $false
+    }
+    # Limit-Check: ab mehr als 5 Datenbanken in der Liste wird die
+    # Exchange-Edition geprueft - Standard erlaubt nur 5 gleichzeitig
+    # gemountete Datenbanken pro Server (Enterprise: 50). Ohne Meldung
+    # schlaegt der Mount ab der 6. DB fehl oder sie bleibt unmounted.
+    if ($rows.Count -gt 5) {
+        $edition = Get-ExchangeEdition
+        $limit = switch ($edition) { "Standard" { 5 } "Enterprise" { 50 } default { $null } }
+        if ($limit -and $rows.Count -gt $limit) {
+            Write-Log ("Database limit: Exchange Server " + $edition + " Edition allows max. " + $limit + " mounted databases per server - the list contains " + $rows.Count + " databases / Datenbank-Limit: bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken (Enterprise: 50)") -Level ERROR
+            $lMsg = (Get-T "DB_EditionLimit") -f $edition, $limit, $rows.Count
+            try { [System.Windows.Forms.MessageBox]::Show($lMsg, (Get-T "Warning"), 'OK', 'Warning') } catch {}
+        } elseif (-not $limit) {
+            Write-Log ("Exchange edition could not be determined - if this is a Standard server the limit is 5 mounted databases (Enterprise: 50), the list contains " + $rows.Count + " databases / Exchange-Edition nicht ermittelbar - bei Standard waeren max. 5 gemountete Datenbanken moeglich") -Level WARNING
+        } else {
+            Write-Log ("Database limit check: " + $rows.Count + " databases, " + $edition + " Edition (limit " + $limit + ") - OK / Limit-Check OK") -Level INFO
+        }
     }
     $created = 0; $existing = 0; $errCnt = 0; $newNames = @()
     foreach ($row in $rows) {
