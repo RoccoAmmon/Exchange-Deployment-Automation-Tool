@@ -176,7 +176,7 @@ Start-Sleep -Milliseconds 600
     Rocco Ammon
 
 .VERSION
-    1.4 (Production Ready) – September 2026
+    1.5 (Production Ready) – Oktober 2026
 
 .REPOSITORY
     https://gitlab.com/RoccoAmmon/Exchange-Deployment-Automation-Tool
@@ -198,6 +198,35 @@ Start-Sleep -Milliseconds 600
     • Support-Kanal (Email/Chat) bereithalten
 
 .CHANGELOG
+    1.5 (2026-10-31)
+    - Master-Workflow beginnt MIT der Exchange-Installation: die Optionen
+      "Voraussetzungspruefung", "Voraussetzungen vorab installieren" und
+      "AD-Vorbereitung im Master-Workflow" wurden aus dem Reiter Installation
+      entfernt (STEP 1, 1.5 und 2.5 entfallen, ISO-Mount nur noch fuer die
+      Installation) - die Reiter werden links nach rechts einzeln abgearbeitet
+      (Voraussetzungen -> AD-Vorbereitung -> Installation)
+    - Neues Voraussetzungs-Gate vor STEP 3: Test-ExchangePrerequisites (OS,
+      RAM, Festplatte, ISO) + Get-PrerequisiteStatus (.NET 4.8, VC++ 2012/2013,
+      URL Rewrite, UCMA 4.0, Windows-Features); fehlt etwas, bricht der Lauf
+      VOR dem Setup ab und listet jeden nicht OK Punkt (i18n-Key
+      Prereq_InstallBlocked), auch bei "Bei Fehlern weiter machen"
+    - Start-Splash meldet das EINZELNE Check-Objekt beim Pruefen der
+      Windows-Voraussetzungen (OnStep-Callback, @@DIAG@@ [Prereq] in der
+      Konsole) - kein "haengt bei 20%" mehr; das bereits gelesene Ergebnis
+      geht an Update-PrerequisiteStatusDisplay weiter (-Status), der Start
+      prueft die Voraussetzungen nicht mehr doppelt
+    - NIC-Energiesparung prueft nur noch aktive Netzwerkkarten: WAN-Miniports
+      und inaktive Adapter bleiben aussen vor (SkipReason je Karte), ohne
+      aktive Karte meldet die GUI "no active NICs found"
+    - Ausstehender Neustart wird erkannt, bevor Setup ins Leere laeuft:
+      Get-PendingRebootStatus (CBS/WindowsUpdate hart, PendingFileRenameOperations
+      nur Warnung) blockiert AD-Vorbereitung und Installation VOR dem Start;
+      nach Exit-Code != 0 holt Write-SetupLogErrorSummary die
+      [ERROR]/[REQUIRED]-Zeilen aus ExchangeSetup.log ins Haupt-Log
+    - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
+      "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
+      die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
+      Formatoperator (-f) statt Int32 + String-Konkatenation
     1.4 (2026-09-28)
     - Tab "URLs & Zertifikate" in zwei Reiter geteilt: "URLs" und "Zertifikate"
       (Zertifikats-Layout neu gesetzt - keine ueberlappenden Texte mehr)
@@ -467,6 +496,54 @@ Start-Sleep -Milliseconds 600
       oder unbekannte Versionen -> Skip mit INFO inkl. erkannter Version.
       Checkbox-Label: "Pagefile (25% RAM, Exchange 2019/SE)";
       test_pagefile.ps1 (30 Checks), test_install_gate.ps1 (82 Checks)
+    - Geaendert: NIC-Energiesparung prueft NUR noch aktive Netzwerkkarten -
+      WAN-Miniports (RAS/VPN/PPPoE, z.B. "WAN Miniport (SSTP)") und Adapter
+      ohne Status "Up" werden wie Multiplexor-Karten uebersprungen (Skipped
+      mit neuem Feld SkipReason, pro Karte mit Grund ins Log); Abgleich der
+      Registry-Keys per Get-NetAdapter ueber NetCfgInstanceId/GUID mit
+      Fallback Treibername, ohne Get-NetAdapter bleibt nur der WAN-Filter
+      aktiv; ohne aktive Karte meldet die GUI "no active NICs found /
+      keine aktiven NICs gefunden" statt "no NICs found"
+    - Geaendert: der Master-Workflow beginnt jetzt MIT der Exchange-
+      Installation - die Optionen "Voraussetzungspruefung",
+      "Voraussetzungen vorab installieren" und "AD-Vorbereitung im
+      Master-Workflow" wurden aus dem Reiter Installation entfernt (STEP 1,
+      1.5 und 2.5 entfallen, ISO-Mount nur noch fuer die Installation); die
+      Reiter werden links nach rechts einzeln abgearbeitet. Vor STEP 3
+      laeuft jetzt ein Voraussetzungs-Gate (Test-ExchangePrerequisites +
+      Get-PrerequisiteStatus: .NET 4.8, VC++ 2012/2013, URL Rewrite, UCMA,
+      Windows-Features): fehlt etwas, bricht der Lauf VOR dem Setup ab,
+      listet jeden nicht OK Punkt und meldet ihn zweisprachig (neuer
+      i18n-Key Prereq_InstallBlocked) mit Verweis auf den Reiter
+      "Voraussetzungen" - auch bei "Bei Fehlern weiter machen"
+    - Neu: der Start-Splash meldet beim Pruefen der Windows-Voraussetzungen
+      das EINZELNE Check-Objekt - Get-PrerequisiteStatus hat einen optionalen
+      OnStep-Callback (vor jedem Check), das Splash-Label zeigt z.B.
+      "Pruefe Windows-Voraussetzungen... (Windows-Features 12/34:
+      Web-Metabase)" und die Konsole bekommt @@DIAG@@ [Prereq] <Check> -
+      damit ist lokalisierbar, wo der Lauf steht (Get-WindowsFeature kann
+      pro Aufruf mehrere Sekunden brauchen und sah sonst aus wie ein
+      Stillstand / "haengt bei 20%"); das bereits gelesene Ergebnis geht
+      zudem an Update-PrerequisiteStatusDisplay weiter (neuer Param -Status)
+      - der Start prueft die Voraussetzungen nicht mehr doppelt, Buttons
+      ("Status aktualisieren", nach Installation) pruefen weiterhin frisch
+    - Neu: ausstehender Neustart wird erkannt, bevor Setup ins Leere laeuft -
+      Get-PendingRebootStatus prueft Component Based Servicing\RebootPending,
+      WindowsUpdate\Auto Update\RebootRequired und PendingFileRenameOperations;
+      Invoke-ExchangePrepareStep und Install-ExchangeServer brechen bei den
+      beiden harten Blockern VOR dem Setup mit ERROR ab (sonst lief
+      /PrepareSchema ~1,5 Min und endete mit Exit-Code 1 +
+      PendingRebootWindowsComponents), PendingFileRenameOperations allein gibt
+      nur eine WARNING; auch Test-ExchangePrerequisites meldet den Neustart
+      als nicht OK Punkt (Voraussetzungs-Gate). Neue Funktion
+      Write-SetupLogErrorSummary holt nach Exit-Code != 0 die [ERROR]/[REQUIRED]-
+      Zeilen aus ExchangeSetup.log ins Haupt-Log (inkl. Neustart-Hinweis)
+    - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
+      "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
+      Write-ADPrepResultReport baute "$Result.FailedCount + " von " auf, und
+      PowerShell wandelt beim "+" den rechten Operanden in den Typ des linken
+      ([int]"von" -> FormatException); jetzt per Formatoperator (-f),
+      Abschlusszeile "X von Y Pruefungen NICHT OK" erscheint wieder
     - Bugfix: Pagefile-Checkbox ohne angehakten "High-Performance Power
       Plan" hatte nie Wirkung - der Block war in if ($SetHighPerformance)
       verschachtelt und wurde stillschweigend uebersprungen (auch im
@@ -593,7 +670,7 @@ $Global:FontMono    = New-Object System.Drawing.Font("Consolas", 9)
 #region ============================ SPRACHEN / I18N ============================
 $Global:Texts = @{
     DE = @{
-        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.4  |  Rocco Ammon"
+        AppTitle="Microsoft Exchange SE - Konfigurations-Center"; AppSubtitle="v1.5  |  Rocco Ammon"
         TabPrereq="  Voraussetzungen  "; TabAD="  AD-Vorbereitung  "; TabInstall="  Installation  "
         TabSec="  Sicherheit / TLS  "; TabSpam="  Antispam  "; TabDB="  Datenbanken  "
         TabDAG="  DAG  "; TabRun="  Ausfuehrung und Log  "; TabUrls="  URLs  "; TabCert="  Zertifikate  "
@@ -649,8 +726,6 @@ $Global:Texts = @{
         Run_OpenLog="ExchangeSetup.log oeffnen"; Run_StartAll=">>>  GESAMTEN PROZESS STARTEN  <<<"
         Yes="Ja"; No="Nein"; OK="OK"; Cancel="Abbrechen"; Error="Fehler"; Info="Info"
         Warning="Warnung"; Confirm="Bestaetigung"
-        Opt_PrereqCheck="Voraussetzungspruefung"; Opt_RunPrereq="Voraussetzungen vorab installieren"
-        Opt_DoADPrep="AD-Vorbereitung im Master-Workflow"
         Opt_InstExch="Exchange Server installieren"; Opt_InstSpam="Antispam-Agenten installieren"
         Opt_CfgSpam="Antispam-Filter konfigurieren"; Opt_Verify="Installation verifizieren"
         Opt_TLS="TLS-Hardening anwenden"; Opt_DBs="Postfach-Datenbanken anlegen"
@@ -705,10 +780,11 @@ $Global:Texts = @{
         AD_ResultNone="Ergebnis-Check noch nicht ausgefuehrt."
         AD_Ran="Ausgefuehrt: {0}"
         AD_InstallBlocked="Exchange-Installation verhindert: die AD-Vorbereitung ist nicht vollstaendig ({0} von {1} Pruefungen NICHT OK)."
+        Prereq_InstallBlocked="Exchange-Installation verhindert: die Voraussetzungen sind nicht vollstaendig ({0} Punkte NICHT OK). Es wurde nichts installiert - zuerst im Reiter 'Voraussetzungen' nachinstallieren (Status aktualisieren), dann den Workflow erneut starten."
         AD_CheckUnknown="Exchange-Installation verhindert: der AD-Status konnte nicht geprueft werden. Bitte 'Ergebnis automatisch pruefen' ausfuehren und das Log pruefen."
     }
     EN = @{
-        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.4  |  Rocco Ammon"
+        AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.5  |  Rocco Ammon"
         TabPrereq="  Prerequisites  "; TabAD="  AD Preparation  "; TabInstall="  Installation  "
         TabSec="  Security / TLS  "; TabSpam="  AntiSpam  "; TabDB="  Databases  "
         TabDAG="  DAG  "; TabRun="  Execution and Log  "; TabUrls="  URLs  "; TabCert="  Certificates  "
@@ -764,8 +840,6 @@ $Global:Texts = @{
         Run_OpenLog="Open ExchangeSetup.log"; Run_StartAll=">>>  START ENTIRE PROCESS  <<<"
         Yes="Yes"; No="No"; OK="OK"; Cancel="Cancel"; Error="Error"; Info="Info"
         Warning="Warning"; Confirm="Confirmation"
-        Opt_PrereqCheck="Prerequisite check"; Opt_RunPrereq="Install prerequisites first"
-        Opt_DoADPrep="AD preparation in master workflow"
         Opt_InstExch="Install Exchange Server"; Opt_InstSpam="Install AntiSpam agents"
         Opt_CfgSpam="Configure AntiSpam filters"; Opt_Verify="Verify installation"
         Opt_TLS="Apply TLS hardening"; Opt_DBs="Create mailbox databases"
@@ -820,6 +894,7 @@ $Global:Texts = @{
         AD_ResultNone="Result check has not been run yet."
         AD_Ran="Setup steps run: {0}"
         AD_InstallBlocked="Exchange installation blocked: AD preparation is incomplete ({0} of {1} checks NOT OK)."
+        Prereq_InstallBlocked="Exchange installation blocked: prerequisites are incomplete ({0} items NOT OK). Nothing was installed - install the missing items first in the Prerequisites tab (refresh status), then restart the workflow."
         AD_CheckUnknown="Exchange installation blocked: could not verify the AD status. Run 'Check result automatically' and inspect the log."
     }
 }
@@ -1354,15 +1429,43 @@ function Get-NicPowerSavingInfo {
         pro Adapter PnPCapabilities (REG_DWORD) lesen - 24 oder 280 bedeuten
         "Energiesparung deaktiviert" (von Microsoft so empfohlen, sonst kann es
         zu Paketverlusten kommen); der Wert fehlt = nicht konfiguriert (der
-        HealthChecker warnt), ein anderer Wert = aktiv. Multiplexor-Adapter
-        werden wie dort uebersprungen. Auf virtuellen Maschinen (z.B. Nutanix)
-        stellt der Treiber die Option manchmal gar nicht zur Verfuegung - dann
-        fehlt der Wert, und Disable-NicPowerSaving schreibt ihn trotzdem
-        (fuer den HealthChecker ist dann alles sauber).
-        Liefert pro Adapter: Name, Path, Value (int oder $null), Disabled, Skipped.
+        HealthChecker warnt), ein anderer Wert = aktiv.
+        Geprueft werden NUR aktive Netzwerkkarten: WAN-Miniports (RAS/VPN/
+        PPPoE, z.B. "WAN Miniport (SSTP)") und Adapter ohne Status "Up"
+        (getrennt, deaktiviert, nicht vorhanden) werden wie die
+        Multiplexor-Adapter uebersprungen - sie stehen mit SkipReason in der
+        Liste und zaehlen weder in der Statuszeile noch in der Deaktivierung
+        mit. Auf virtuellen Maschinen (z.B. Nutanix) stellt der Treiber die
+        Option manchmal gar nicht zur Verfuegung - dann fehlt der Wert, und
+        Disable-NicPowerSaving schreibt ihn trotzdem (fuer den HealthChecker
+        ist dann alles sauber).
+        Liefert pro Adapter: Name, Path, Value (int oder $null), Disabled,
+        Skipped, SkipReason.
     #>
     $classKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002bE10318}'
     $list = @()
+    # NUR AKTIVE Netzwerkkarten: Referenzliste aller sichtbaren Adapter mit
+    # Status "Up" (aktiver Link). Get-NetAdapter fuehrt WAN-Miniports NICHT
+    # auf (nur mit -IncludeHidden) - sie werden zusaetzlich per
+    # "WAN Miniport"-Muster gefiltert, damit der Ausschluss auch ohne
+    # Get-NetAdapter greift. Zuordnung Registry-Key <-> Adapter ueber
+    # NetCfgInstanceId (entspricht der InterfaceGuid von Get-NetAdapter),
+    # ohne GUID als Fallback ueber den Treibernamen (DriverDesc =
+    # InterfaceDescription). Schlaegt Get-NetAdapter fehl (Modul nicht
+    # verfuegbar), bleibt nur der WAN-Filter aktiv - sonst wuerden alle
+    # Karten als inaktiv uebersprungen.
+    $activeGuids = @{}
+    $activeDescs = @{}
+    $haveActiveList = $false
+    try {
+        foreach ($na in @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { "$($_.Status)" -eq 'Up' })) {
+            $g = "$($na.InterfaceGuid)" -replace '[{}]',''
+            if ($g) { $activeGuids[$g.ToLower()] = $true }
+            $d = "$($na.InterfaceDescription)"
+            if ($d) { $activeDescs[$d] = $true }
+        }
+        $haveActiveList = $true
+    } catch {}
     # WICHTIG: NICHT mit -ErrorAction Stop enumerieren! Neben den Adaptern
     # liegen unter dem Klassen-Key gesperrte Sonder-Subkeys (z.B. "Properties"
     # mit Access-Denied-ACL) - EIN nicht lesbarer Eintrag brach die komplette
@@ -1382,12 +1485,34 @@ function Get-NicPowerSavingInfo {
         try { $desc = "$((Get-ItemProperty -Path $k.PSPath -Name DriverDesc -ErrorAction Stop).DriverDesc)" } catch { continue }
         if (-not $desc) { continue }
         if ($desc -match 'Multiplexor') {
-            $list += [PSCustomObject]@{ Name=$desc; Path="$($k.PSPath)"; Value=$null; Disabled=$false; Skipped=$true }
+            $list += [PSCustomObject]@{ Name=$desc; Path="$($k.PSPath)"; Value=$null; Disabled=$false; Skipped=$true; SkipReason='Multiplexor adapter' }
             continue
+        }
+        # WAN-Miniports (RAS/VPN/PPPoE) nie pruefen - keine echten
+        # Netzwerkkarten, auf Exchange-Servern ohne Relevanz.
+        if ($desc -match '^WAN Miniport') {
+            $list += [PSCustomObject]@{ Name=$desc; Path="$($k.PSPath)"; Value=$null; Disabled=$false; Skipped=$true; SkipReason='WAN Miniport' }
+            continue
+        }
+        # Nur aktive Karten weiter pruefen (Status "Up"). GUID hat Vorrang;
+        # der Treibername greift nur, wenn der Key keine NetCfgInstanceId
+        # fuehrt (sonst wuerde z.B. eine inaktive zweite Karte desselben
+        # Treibers als "aktiv" durchgehen).
+        if ($haveActiveList) {
+            $isActive = $false
+            $guid = $null
+            try { $guid = "$((Get-ItemProperty -Path $k.PSPath -Name NetCfgInstanceId -ErrorAction Stop).NetCfgInstanceId)" -replace '[{}]','' } catch {}
+            if ($guid) {
+                if ($activeGuids.ContainsKey($guid.ToLower())) { $isActive = $true }
+            } elseif ($activeDescs.ContainsKey($desc)) { $isActive = $true }
+            if (-not $isActive) {
+                $list += [PSCustomObject]@{ Name=$desc; Path="$($k.PSPath)"; Value=$null; Disabled=$false; Skipped=$true; SkipReason='inactive / inaktiv' }
+                continue
+            }
         }
         $v = $null
         try { $v = [int](Get-ItemProperty -Path $k.PSPath -Name PnPCapabilities -ErrorAction Stop).PnPCapabilities } catch {}
-        $list += [PSCustomObject]@{ Name=$desc; Path="$($k.PSPath)"; Value=$v; Disabled=($v -eq 24 -or $v -eq 280); Skipped=$false }
+        $list += [PSCustomObject]@{ Name=$desc; Path="$($k.PSPath)"; Value=$v; Disabled=($v -eq 24 -or $v -eq 280); Skipped=$false; SkipReason=$null }
     }
     if ($subs.Count -eq 0) {
         if ($enumErr.Count -gt 0) {
@@ -1401,18 +1526,21 @@ function Get-NicPowerSavingInfo {
 
 function Disable-NicPowerSaving {
     <#
-        Energiesparung aller Netzwerkkarten deaktivieren: PnPCapabilities = 24
-        (der HealthChecker-SleepyNICCheck akzeptiert 24/280 als "aus").
-        Bereits korrekte Werte bleiben unveraendert, Multiplexor-Adapter werden
-        uebersprungen, Schreibfehler (z.B. kein Admin) werden pro Adapter
-        gemeldet statt zuverschweigen. Liefert @{ Total; Fixed; Already; Skipped; Errors }.
+        Energiesparung aller AKTIVEN Netzwerkkarten deaktivieren:
+        PnPCapabilities = 24 (der HealthChecker-SleepyNICCheck akzeptiert
+        24/280 als "aus"). Bereits korrekte Werte bleiben unveraendert;
+        uebersprungene Eintraege (Multiplexor, WAN-Miniport, inaktiv) zaehlen
+        getrennt und werden mit ihrem Grund protokolliert, Schreibfehler
+        (z.B. kein Admin) werden pro Adapter gemeldet statt zuverschweigen.
+        Liefert @{ Total; Fixed; Already; Skipped; Errors }.
     #>
     $info = @(Get-NicPowerSavingInfo)
     $r = @{ Total=0; Fixed=0; Already=0; Skipped=0; Errors=0 }
     foreach ($a in $info) {
         if ($a.Skipped) {
             $r.Skipped++
-            Write-Log ("  NIC '" + $a.Name + "': Multiplexor adapter - skipped / uebersprungen") -Level INFO
+            $reason = if ($a.SkipReason) { $a.SkipReason } else { 'not active / nicht aktiv' }
+            Write-Log ("  NIC '" + $a.Name + "': " + $reason + " - skipped / uebersprungen") -Level INFO
             continue
         }
         $r.Total++
@@ -1438,14 +1566,17 @@ function Disable-NicPowerSaving {
 }
 
 function Update-NicPowerSavingLabel {
-    <# Fuellt das Status-Label $Global:LblNicPower (Tab Voraussetzungen). #>
+    <# Fuellt das Status-Label $Global:LblNicPower (Tab Voraussetzungen).
+       Gezaehlt werden nur aktive NICs - WAN-Miniports, inaktive und
+       Multiplexor-Adapter sind bereits in Get-NicPowerSavingInfo als
+       Skipped markiert und bleiben aussen vor. #>
     if (-not $Global:LblNicPower) { return }
     try {
         $nic = @(Get-NicPowerSavingInfo | Where-Object { -not $_.Skipped })
         $bad = @($nic | Where-Object { -not $_.Disabled })
-        Write-Log ("NIC power saving check: " + $nic.Count + " adapters / Netzwerkkarten, " + $bad.Count + " not disabled / nicht deaktiviert") -Level INFO
+        Write-Log ("NIC power saving check: " + $nic.Count + " active adapters / aktive Netzwerkkarten, " + $bad.Count + " not disabled / nicht deaktiviert") -Level INFO
         if ($nic.Count -eq 0) {
-            $Global:LblNicPower.Text = "no NICs found / keine NICs gefunden"
+            $Global:LblNicPower.Text = if ($Global:CurrentLang -eq "DE") { "keine aktiven NICs gefunden" } else { "no active NICs found" }
             $Global:LblNicPower.ForeColor = $Global:ColorWarning
         } elseif ($bad.Count -eq 0) {
             $Global:LblNicPower.Text = if ($Global:CurrentLang -eq "DE") { "OK - deaktiviert (" + $nic.Count + " NICs)" } else { "OK - disabled (" + $nic.Count + " NICs)" }
@@ -1458,6 +1589,16 @@ function Update-NicPowerSavingLabel {
 }
 
 function Get-PrerequisiteStatus {
+    param(
+        # Optionaler Fortschritts-Callback: vor JEDEM einzelnen Check wird er
+        # mit dem Pruefnamen aufgerufen - der Splash zeigt so, worauf der User
+        # gerade wartet ("Pruefe Windows-Voraussetzungen... (Windows-Features
+        # 12/34: Web-Metabase)"), statt nur die Rubrik. Besonders wichtig beim
+        # Feature-Loop: Get-WindowsFeature kann je nach System mehrere Sekunden
+        # pro Aufruf brauchen (SXS-Repository) und wirkt sonst wie ein Hanger.
+        # Ohne Parameter aendert sich nichts (Workflow-Gate/Status-Refresh).
+        [scriptblock]$OnStep
+    )
     $features = @(
         "Server-Media-Foundation","NET-Framework-45-Features","RPC-over-HTTP-proxy",
         "RSAT-Clustering","RSAT-Clustering-CmdInterface","RSAT-Clustering-Mgmt",
@@ -1471,27 +1612,46 @@ function Get-PrerequisiteStatus {
     )
     $missing = @()
     try {
+        $fIdx = 0
         foreach ($f in $features) {
+            $fIdx++
+            if ($OnStep) { & $OnStep ("Windows-Features " + $fIdx + "/" + $features.Count + ": " + $f) }
             $st = Get-WindowsFeature -Name $f -ErrorAction SilentlyContinue
             if ($st -and -not $st.Installed) { $missing += $f }
         }
     } catch {}
+    # Komponenten einzeln abfragen (statt erst im return-Ausdruck), damit der
+    # Fortschritts-Callback IMMER VOR dem jeweiligen Check meldet.
+    if ($OnStep) { & $OnStep ".NET Framework 4.8" }
+    $dotNet48 = Test-DotNet48
+    if ($OnStep) { & $OnStep "Visual C++ 2012 x64" }
+    $vc2012 = (Test-VCRedistInstalled "Visual C++ 2012 x64")
+    if ($OnStep) { & $OnStep "Visual C++ 2013 x64" }
+    $vc2013 = (Test-VCRedistInstalled "Visual C++ 2013 x64")
+    if ($OnStep) { & $OnStep "URL Rewrite 2.1" }
+    $urlRewrite = Test-URLRewrite
+    if ($OnStep) { & $OnStep "UCMA 4.0" }
+    $ucma = Test-UCMA
     $smb1Enabled = $false
+    if ($OnStep) { & $OnStep "SMB1 (Windows-Optional-Feature)" }
     try {
         $smb1 = Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -ErrorAction SilentlyContinue
         if ($smb1 -and $smb1.State -eq "Enabled") { $smb1Enabled = $true }
     } catch {}
-    # SleepyNIC-Status (HealthChecker): alle Adapter mit deaktivierter
-    # Energiesparung? Kein Adapter gefunden = nicht meckern (kein Issue).
+    # SleepyNIC-Status (HealthChecker): alle AKTIVEN Adapter mit
+    # deaktivierter Energiesparung? WAN-Miniports, inaktive und
+    # Multiplexor-Karten sind als Skipped markiert und zaehlen nicht mit.
+    # Kein aktiver Adapter gefunden = nicht meckern (kein Issue).
     $nicOK = $true
+    if ($OnStep) { & $OnStep "NIC power saving (SleepyNIC)" }
     try {
         $nicList = @(Get-NicPowerSavingInfo | Where-Object { -not $_.Skipped })
         if ($nicList.Count -gt 0) { $nicOK = (@($nicList | Where-Object { -not $_.Disabled }).Count -eq 0) }
     } catch {}
     return [PSCustomObject]@{
-        DotNet48=Test-DotNet48; VC2012=(Test-VCRedistInstalled "Visual C++ 2012 x64")
-        VC2013=(Test-VCRedistInstalled "Visual C++ 2013 x64"); URLRewrite=Test-URLRewrite
-        UCMA=Test-UCMA; Features=$features; MissingFeatures=$missing
+        DotNet48=$dotNet48; VC2012=$vc2012
+        VC2013=$vc2013; URLRewrite=$urlRewrite
+        UCMA=$ucma; Features=$features; MissingFeatures=$missing
         FeaturesOK=($missing.Count -eq 0); SMB1Enabled=$smb1Enabled
         NicPowerSavingOK=$nicOK
     }
@@ -1688,7 +1848,7 @@ function Install-PrerequisiteSoftware {
         Write-Log "[8/9] NIC power saving deactivation (SleepyNICCheck)..." -Level INFO
         $nicFix = Disable-NicPowerSaving
         if ($nicFix.Total -eq 0) {
-            Write-Log "  No network adapters found / Keine Netzwerkkarten gefunden" -Level WARNING
+            Write-Log "  No active network adapters found / Keine aktiven Netzwerkkarten gefunden" -Level WARNING
         } elseif ($nicFix.Errors -gt 0) {
             Write-Log ("  NIC power saving: " + $nicFix.Fixed + " changed / geaendert, " + $nicFix.Errors + " errors / Fehler") -Level ERROR
         } else {
@@ -1847,6 +2007,26 @@ function Import-ExchangeManagementShell {
     }
 }
 
+function Get-PendingRebootStatus {
+    <#
+        Prueft, ob ein Neustart aussteht (Exchange Setup bricht im
+        Prereq-Check mit "PendingRebootWindowsComponents" ab und liefert
+        Exit-Code 1). Ausgewertet werden die drei klassischen Quellen:
+        - Component Based Servicing\RebootPending (Windows-Rolle/Funktion)
+        - WindowsUpdate\Auto Update\RebootRequired (CU/Update)
+        - PendingFileRenameOperations (Datei-Rename beim naechsten Start)
+        Rueckgabe: PSCustomObject mit Pending (Gesamt) + Einzelbefunden.
+    #>
+    $cbs = $false; $wu = $false; $pfr = $false
+    try { $cbs = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" } catch {}
+    try { $wu  = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" } catch {}
+    try {
+        $pfro = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name "PendingFileRenameOperations" -ErrorAction SilentlyContinue
+        if ($pfro -and $pfro.PendingFileRenameOperations) { $pfr = $true }
+    } catch {}
+    return [PSCustomObject]@{ Pending=($cbs -or $wu -or $pfr); CBS=$cbs; WindowsUpdate=$wu; FileRename=$pfr }
+}
+
 function Test-ExchangePrerequisites {
     param([string]$ExchangeISOPath)
     $errors = @()
@@ -1857,8 +2037,23 @@ function Test-ExchangePrerequisites {
         if ($ram -lt 8) { $errors += "RAM < 8 GB ($ram GB)" }
         $sysDrive = Get-PSDrive -Name ($env:SystemDrive.Replace(":",""))
         $freeGB = [math]::Round($sysDrive.Free / 1GB, 2)
-        if ($freeGB -lt 30) { $errors += "Free space < 30 GB" }
+        if ($freeGB -lt 20) { $errors += "Free space < 20 GB" }
         if ($ExchangeISOPath -and -not (Test-Path $ExchangeISOPath)) { $errors += "ISO not found: $ExchangeISOPath" }
+        # Ausstehender Neustart: Exchange Setup (auch /PrepareSchema) scheitert
+        # im Prereq-Check mit PendingRebootWindowsComponents und Exit-Code 1.
+        # Nur CBS (Rolle/Funktion) und Windows Update sind harte Blocker -
+        # PendingFileRenameOperations allein ist oft veraltet und blockiert NICHT.
+        try {
+            $rb = Get-PendingRebootStatus
+            if ($rb.CBS -or $rb.WindowsUpdate) {
+                $rbWhy = @()
+                if ($rb.CBS)           { $rbWhy += "Windows-Server-Rolle/-Funktion (Component Based Servicing)" }
+                if ($rb.WindowsUpdate) { $rbWhy += "Windows Update (RebootRequired)" }
+                $errors += ("Pending reboot / ausstehender Neustart (" + ($rbWhy -join ", ") + ") - Server neu starten")
+            } elseif ($rb.FileRename) {
+                Write-Log "  - Hinweis: PendingFileRenameOperations gesetzt (Neustart ausstehend) - blockiert nicht, nur falls Setup danach fehlschlaegt / note: reboot pending (not blocking)" -Level WARNING
+            }
+        } catch {}
         if ($errors.Count -gt 0) {
             foreach ($e in $errors) { Write-Log ("  - " + $e) -Level ERROR }
             return $false
@@ -2593,6 +2788,20 @@ function Install-ExchangeServer {
             Write-Log ("Install path / Installationspfad: " + $TargetDir) -Level INFO
         }
 
+        # Ausstehender Neustart: Setup wuerde im Prereq-Check mit
+        # PendingRebootWindowsComponents und Exit-Code 1 abbrechen - besser
+        # sofort klar melden, statt 60-90 min ins Leere zu starten.
+        try {
+            $rb = Get-PendingRebootStatus
+            if ($rb.CBS -or $rb.WindowsUpdate) {
+                $rbWhy = @()
+                if ($rb.CBS)           { $rbWhy += "Windows-Server-Rolle/-Funktion (Component Based Servicing)" }
+                if ($rb.WindowsUpdate) { $rbWhy += "Windows Update (RebootRequired)" }
+                Write-Log ("Exchange Setup NICHT GESTARTET: ausstehender Neustart (" + ($rbWhy -join ", ") + ") - Setup bricht im Prereq-Check mit 'PendingRebootWindowsComponents' und Exit-Code 1 ab. Server NEU STARTEN und den Workflow wiederholen / NOT STARTED: pending reboot - reboot the server and restart the workflow.") -Level ERROR
+                return $false
+            }
+        } catch {}
+
         Write-Log "Starting Exchange Setup (60-90 min)..." -Level INFO
         Write-Log ("Arguments: " + ($arguments -join ' ')) -Level INFO
         Write-Log ("Setup-Logdatei (Volltext): " + $Global:ExchangeSetupLog) -Level INFO
@@ -2601,6 +2810,8 @@ function Install-ExchangeServer {
         $exitCode = Invoke-ResponsiveProcess -FilePath $SetupPath -Arguments $arguments -LogPrefix "Exchange-Setup" -HeartbeatSec 30 -TrackSetupProgress $true -ShowAllTailLines $true
         if ($exitCode -eq 0) { Write-Log "Exchange installed successfully!" -Level SUCCESS; return $true }
         Write-Log ("Setup failed with exit code: " + $exitCode) -Level ERROR
+        # Fehlerursache aus ExchangeSetup.log ins Haupt-Log holen
+        Write-SetupLogErrorSummary -SetupLogPath $Global:ExchangeSetupLog
         Write-Log "Check details in: C:\ExchangeSetupLogs\ExchangeSetup.log" -Level WARNING
         return $false
     } catch { Write-Log ("Error: " + $_) -Level ERROR; return $false }
@@ -2817,6 +3028,39 @@ function Get-ADDomainList {
     try { return ([System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest().Domains | ForEach-Object { $_.Name }) } catch { return @() }
 }
 
+function Write-SetupLogErrorSummary {
+    <#
+        Liest nach einem fehlgeschlagenen Setup-Lauf (Exit-Code != 0) die
+        eigentliche Fehlerursache aus ExchangeSetup.log und schreibt sie ins
+        Haupt-Log. Ohne diesen Schritt stand im Haupt-Log nur "Exit-Code 1" -
+        die Ursache (z.B. "[REQUIRED] Es steht ein Neustart ... aus") war
+        nur durch manuelles Oeffnen der Setup-Logdatei sichtbar.
+        Zusatzhinweis, wenn ein ausstehender Neustart die Ursache ist.
+    #>
+    param([string]$SetupLogPath, [int]$MaxLines = 8)
+    if (-not $SetupLogPath) { return }
+    if (-not (Test-Path $SetupLogPath)) {
+        Write-Log ("Setup-Log nicht gefunden, keine Fehlerdetails: " + $SetupLogPath) -Level WARNING
+        return
+    }
+    try {
+        # ReadAllLines erkennt die Kodierung (BOM) automatisch - wichtiger als
+        # -Encoding, weil die Setup-Logdatei deutsche Umlauten enthaelt.
+        $all = [System.IO.File]::ReadAllLines($SetupLogPath)
+        $errLines = @($all | Where-Object { $_ -match '\[ERROR\]|\[REQUIRED\]' })
+        if ($errLines.Count -eq 0) {
+            Write-Log ("Setup-Log: keine [ERROR]/[REQUIRED]-Zeilen gefunden (" + $all.Length + " Zeilen geprueft) - Ursache ggf. in der Mitte der Datei.") -Level WARNING
+            return
+        }
+        Write-Log ("Setup-Log - Fehlerursache aus " + $SetupLogPath + " (" + $errLines.Count + " [ERROR]/[REQUIRED]-Zeilen):") -Level ERROR
+        foreach ($l in ($errLines | Select-Object -Last $MaxLines)) { Write-Log ("  SETUP: " + $l.Trim()) -Level ERROR }
+        $reboot = @($errLines | Where-Object { $_ -match 'Neustart aufgrund|Starten Sie den Computer neu|pending reboot|reboot.*required' })
+        if ($reboot.Count -gt 0) {
+            Write-Log "Ursache: AUSSTEHENDER NEUSTART (Pending Reboot) - es wurde vorher eine Windows-Server-Rolle oder -Funktion installiert. Server NEU STARTEN und den Schritt danach wiederholen / root cause: pending reboot - reboot the server, then repeat this step." -Level ERROR
+        }
+    } catch { Write-Log ("Setup-Log konnte nicht gelesen werden: " + $_.Exception.Message) -Level WARNING }
+}
+
 function Invoke-ExchangePrepareStep {
     param(
         [Parameter(Mandatory)][string]$SetupPath,
@@ -2853,6 +3097,24 @@ function Invoke-ExchangePrepareStep {
             Write-Log ("Vorher: Schema=" + $pre.SchemaVersion + " Org=" + $pre.OrgVersion + " (" + $pre.ExchangeOrgName + ") Domain=" + $pre.DomainVersion) -Level INFO
         } catch {}
         Write-Log ("Fuehre aus: Setup.exe " + ($arguments -join ' ')) -Level INFO
+        # Vorab-Check auf ausstehenden Neustart: ohne diesen bricht Setup im
+        # Prereq-Check mit "PendingRebootWindowsComponents" nach ~1-2 Min mit
+        # Exit-Code 1 ab - besser sofort und klar melden statt ins Leere laufen.
+        # Nur CBS/WindowsUpdate sind harte Exchange-Blocker; Pending-
+        # FileRenameOperations allein wird nur gewarnt (kann veraltet sein).
+        try {
+            $rb = Get-PendingRebootStatus
+            if ($rb.CBS -or $rb.WindowsUpdate) {
+                $rbWhy = @()
+                if ($rb.CBS)           { $rbWhy += "Windows-Server-Rolle/-Funktion (Component Based Servicing)" }
+                if ($rb.WindowsUpdate) { $rbWhy += "Windows Update (RebootRequired)" }
+                Write-Log ("$Step NICHT GESTARTET: ausstehender Neustart (" + ($rbWhy -join ", ") + ") - Exchange Setup wuerde im Prereq-Check mit 'PendingRebootWindowsComponents' und Exit-Code 1 abbrechen. Server NEU STARTEN und den Schritt wiederholen / NOT STARTED: pending reboot - reboot the server and repeat this step.") -Level ERROR
+                return $false
+            }
+            if ($rb.FileRename) {
+                Write-Log "Hinweis: PendingFileRenameOperations gesetzt (Neustart ausstehend) - falls Setup mit Fehler abbricht, zuerst neu starten / note: reboot pending." -Level WARNING
+            }
+        } catch {}
         # Ausgefuehrten Setup-Schritt fuer den spaeteren Ergebnis-Report merken.
         # Der Eintrag entsteht VOR dem Lauf (sichtbar auch bei Fehler/Abbruch),
         # das OK-Flag wird nach dem Exit-Code gesetzt.
@@ -2874,6 +3136,10 @@ function Invoke-ExchangePrepareStep {
             return $true
         }
         Write-Log ("$Step FEHLER: Exit-Code " + $ec + " (Dauer: $dur) - ABBRUCH, naechste Schritte werden NICHT ausgefuehrt. Details: " + $Global:ExchangeSetupLog) -Level ERROR
+        # Die eigentliche Ursache aus ExchangeSetup.log ins Haupt-Log holen -
+        # sonst steht dort nur "Exit-Code 1" und man muss die Setup-Logdatei
+        # von Hand oeffnen (beobachtet: PendingRebootWindowsComponents).
+        Write-SetupLogErrorSummary -SetupLogPath $Global:ExchangeSetupLog
         return $false
     } catch { Write-Log ("$Step Ausnahme: " + $_) -Level ERROR; return $false }
 }
@@ -3131,7 +3397,12 @@ function Write-ADPrepResultReport {
     if ($Result.AllOK) {
         Write-Log ("Alle " + $Result.TotalCount + " Pruefungen OK - Active Directory ist vollstaendig vorbereitet (Ist-Stand).") -Level SUCCESS
     } else {
-        Write-Log ($Result.FailedCount + " von " + $Result.TotalCount + " Pruefungen NICHT OK - AD-Vorbereitung unvollstaendig (Ist-Stand).") -Level ERROR
+        # WICHTIG: Formatoperator statt String-Konkatenation - links steht ein
+        # Int32 ($Result.FailedCount), und PowerShell wuerde beim "+" rechts
+        # "von" nach [int] wandeln -> FormatException ("Der Wert "von" kann
+        # nicht in den Typ System.Int32 konvertiert werden"), der den ganzen
+        # Ergebnis-Report abgebrochen hat.
+        Write-Log (("{0} von {1} Pruefungen NICHT OK - AD-Vorbereitung unvollstaendig (Ist-Stand).") -f $Result.FailedCount, $Result.TotalCount) -Level ERROR
     }
     Write-Log "==============================================" -Level INFO
 }
@@ -4472,7 +4743,7 @@ $BtnFixNicPower.Add_Click({
         $r = Disable-NicPowerSaving
         $msg = ("NIC power saving / Energiesparung NIC: " + $r.Fixed + " changed / geaendert, " + $r.Already + " already disabled / bereits deaktiviert, " + $r.Skipped + " skipped / uebersprungen, " + $r.Errors + " errors / Fehler")
         if ($r.Errors -gt 0) { Write-Log $msg -Level ERROR }
-        elseif ($r.Total -eq 0) { Write-Log "No network adapters found / Keine Netzwerkkarten gefunden" -Level WARNING }
+        elseif ($r.Total -eq 0) { Write-Log "No active network adapters found / Keine aktiven Netzwerkkarten gefunden" -Level WARNING }
         else { Write-Log $msg -Level SUCCESS }
         Update-NicPowerSavingLabel
     } catch { Write-Log ("NIC power saving error: " + $_) -Level ERROR }
@@ -4486,9 +4757,16 @@ $BtnRefreshPrereq = New-Button (Get-T "PrereqRefresh") 870 28 200 32 $Global:Col
 # beim Start als "..." stehen blieben. Jetzt Button UND Start-Aufruf (Splash)
 # gehen direkt durch diese Funktion.
 function Update-PrerequisiteStatusDisplay {
+    param(
+        # Optional: bereits gelesenes Ergebnis aus Get-PrerequisiteStatus -
+        # der Splash-Start (Shown-Handler) hat die Checks gerade erst laufen
+        # lassen; ohne diesen Parameter würde die Anzeige ALLES ein zweites
+        # Mal pruefen (beim Start doppelte Wartezeit, v.a. beim Feature-Loop).
+        [object]$Status = $null
+    )
     try {
         Write-Log "Reading prerequisite status..." -Level INFO
-        $st = Get-PrerequisiteStatus
+        $st = if ($Status) { $Status } else { Get-PrerequisiteStatus }
 
         $okText = if ($Global:CurrentLang -eq "DE") { "OK - bereits installiert" } else { "OK - already installed" }
         $missText = if ($Global:CurrentLang -eq "DE") { "FEHLT - wird installiert" } else { "MISSING - will be installed" }
@@ -4954,21 +5232,22 @@ $Global:Checks = @{}
 # Hinweis: Die frueheren Optionen "ISO automatisch mounten" und "ISO am Ende unmounten"
 # wurden entfernt - die ISO wird jetzt IMMER automatisch gemountet, sobald ein Schritt
 # sie braucht, und am Ende IMMER wieder dismountet (siehe Mount-ExchangeISO / STEP 9).
+# Ebenso entfernt: "Voraussetzungspruefung", "Voraussetzungen vorab installieren" und
+# "AD-Vorbereitung im Master-Workflow" - die Reiter werden links nach rechts einzeln
+# abgearbeitet; der Workflow beginnt mit der Exchange-Installation und laeuft vorher
+# ueber das Voraussetzungs-Gate (siehe Button-Handler "GESAMTEN PROZESS STARTEN").
 $opts = @(
-    @{Key="PrereqCheck"; Text=(Get-T "Opt_PrereqCheck"); Default=$true; Col=0; Row=0},
-    @{Key="RunPrereqInstall"; Text=(Get-T "Opt_RunPrereq"); Default=$true; Col=0; Row=1},
-    @{Key="DoADPrep"; Text=(Get-T "Opt_DoADPrep"); Default=$true; Col=0; Row=2},
-    @{Key="InstallExchange"; Text=(Get-T "Opt_InstExch"); Default=$true; Col=0; Row=3},
+    @{Key="InstallExchange"; Text=(Get-T "Opt_InstExch"); Default=$true; Col=0; Row=0},
+    @{Key="CreateCertificate"; Text=(Get-T "Opt_CreateCert"); Default=$false; Col=0; Row=1},
     @{Key="InstallAntispam"; Text=(Get-T "Opt_InstSpam"); Default=$true; Col=1; Row=0},
     @{Key="ConfigAntispam"; Text=(Get-T "Opt_CfgSpam"); Default=$true; Col=1; Row=1},
     @{Key="VerifyInstall"; Text=(Get-T "Opt_Verify"); Default=$true; Col=1; Row=2},
     @{Key="ApplyTLS"; Text=(Get-T "Opt_TLS"); Default=$true; Col=1; Row=3},
     @{Key="CreateDBs"; Text=(Get-T "Opt_DBs"); Default=$false; Col=1; Row=4},
+    @{Key="SetUrls"; Text=(Get-T "Opt_SetUrls"); Default=$false; Col=1; Row=5},
     @{Key="CreateDAG"; Text=(Get-T "Opt_DAG"); Default=$false; Col=2; Row=0},
     @{Key="ForceAdminCheck"; Text=(Get-T "Opt_Admin"); Default=$true; Col=2; Row=1},
-    @{Key="ContinueOnError"; Text=(Get-T "Opt_Continue"); Default=$false; Col=2; Row=2},
-    @{Key="CreateCertificate"; Text=(Get-T "Opt_CreateCert"); Default=$false; Col=0; Row=4},
-    @{Key="SetUrls"; Text=(Get-T "Opt_SetUrls"); Default=$false; Col=1; Row=5}
+    @{Key="ContinueOnError"; Text=(Get-T "Opt_Continue"); Default=$false; Col=2; Row=2}
 )
 foreach ($o in $opts) {
     $cb = New-CheckBox $o.Text (20 + $o.Col*355) (26 + $o.Row*25) 340 $o.Default
@@ -6098,7 +6377,7 @@ $BtnSaveCfg.Add_Click({
         $dagMembers = @($Global:TxtMembers.Text.Split("`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
         $cfg = @{
-            Version = "1.4"
+            Version = "1.5"
             Language = $Global:CurrentLang
             Saved = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
             ISO = @{
@@ -6494,11 +6773,10 @@ $BtnStartAll.Add_Click({
         $Global:ISOMountedByScript = $false
 
         # ISO ermitteln - die ISO-Datei wird IMMER gemountet, wenn ein Schritt sie
-        # benoetigt (Voraussetzungen/UCMA, AD-Vorbereitung, Exchange-Installation).
-        # Die fruehere Option "ISO automatisch mounten" gibt es dafuer nicht mehr.
-        $needsIso = ($Global:Checks["RunPrereqInstall"].Checked -or
-                     $Global:Checks["DoADPrep"].Checked -or
-                     $Global:Checks["InstallExchange"].Checked)
+        # benoetigt (Exchange-Installation; Voraussetzungen/UCMA haben ihren eigenen
+        # Mount im Reiter Voraussetzungen). Die fruehere Option "ISO automatisch
+        # mounten" gibt es dafuer nicht mehr.
+        $needsIso = $Global:Checks["InstallExchange"].Checked
         if ($Global:RbISOMounted.Checked -and $Global:CmbMountedDrives.SelectedIndex -ge 0 -and $Global:DetectedISOs.Count -gt 0) {
             $ExchangeSetupPath = $Global:DetectedISOs[$Global:CmbMountedDrives.SelectedIndex].SetupPath
             if (Test-Path "$ExchangeSetupPath") {
@@ -6515,78 +6793,54 @@ $BtnStartAll.Add_Click({
             $ExchangeSetupPath = Mount-ExchangeISO -ISOPath $Global:TxtISO.Text
         }
 
-        # SCHRITT 1: Voraussetzungs-Check
-        if ($Global:Checks["PrereqCheck"].Checked) {
-            Write-Log "--- STEP 1: Prerequisites check ---" -Level INFO
-            $isoCheck = if ($Global:RbISOFile.Checked) { $Global:TxtISO.Text } else { "" }
-            if (-not (Test-ExchangePrerequisites -ExchangeISOPath $isoCheck) -and -not $continueOnError) {
-                Write-Log "Aborted (prerequisites)" -Level ERROR; return
-            }
-        }
-
-        # SCHRITT 1.5: Voraussetzungen installieren
-        if ($Global:Checks["RunPrereqInstall"].Checked) {
-            Write-Log "--- STEP 1.5: Install prerequisites ---" -Level INFO
-            Install-PrerequisiteSoftware `
-                -InstallDotNet $Global:ChkInstDotNet.Checked `
-                -InstallVC2012 $Global:ChkInstVC2012.Checked `
-                -InstallVC2013 $Global:ChkInstVC2013.Checked `
-                -InstallURLRewrite $Global:ChkInstURLRewrite.Checked `
-                -InstallUCMA $Global:ChkInstUCMA.Checked `
-                -InstallFeatures $Global:ChkInstFeatures.Checked `
-                -DisableSMB1 $Global:ChkDisableSMB1.Checked `
-                -OptimizePageFile $Global:ChkSetPagefile.Checked `
-                -SetHighPerformance $Global:ChkSetHighPerf.Checked `
-                -DisableNicPower $Global:ChkDisableNicPower.Checked
-        }
-
         # SCHRITT 2: TLS-Hardening
         if ($Global:Checks["ApplyTLS"].Checked) {
             Write-Log "--- STEP 2: TLS Hardening ---" -Level INFO
             Set-TLSHardening | Out-Null
         }
 
-        # SCHRITT 2.5: AD-Vorbereitung
-        if ($Global:Checks["DoADPrep"].Checked -and ($Global:ChkPrepSchema.Checked -or $Global:ChkPrepAD.Checked -or $Global:ChkPrepDom.Checked)) {
-            Write-Log "--- STEP 2.5: AD Preparation ---" -Level INFO
-            $Global:AdPrepExecuted = @()   # neuer Lauf - Ausfuehrungsliste fuer den Report zuruecksetzen
-            if (-not $ExchangeSetupPath) { Write-Log "No setup path - AD prep skipped" -Level WARNING }
-            else {
-                $waitMin = [int]$Global:NumWaitMin.Value
-                $adAbort = $false
-                if ($Global:ChkPrepSchema.Checked -and -not $adAbort) {
-                    $ok = Invoke-ExchangePrepareStep -SetupPath $ExchangeSetupPath -Step "PrepareSchema"
-                    if (-not $ok) {
-                        Write-Log "AD-Vorbereitung ABGEBROCHEN nach PrepareSchema." -Level ERROR
-                        if (-not $continueOnError) { Write-Log "Aborted (PrepareSchema failed)" -Level ERROR; return }
-                        $adAbort = $true
-                    } elseif ($waitMin -gt 0) { Wait-ADReplication -Minutes $waitMin }
-                }
-                if ($Global:ChkPrepAD.Checked -and -not $adAbort) {
-                    $ok = Invoke-ExchangePrepareStep -SetupPath $ExchangeSetupPath -Step "PrepareAD" -OrgName $Global:TxtOrg.Text
-                    if (-not $ok) {
-                        Write-Log "AD-Vorbereitung ABGEBROCHEN nach PrepareAD." -Level ERROR
-                        if (-not $continueOnError) { Write-Log "Aborted (PrepareAD failed)" -Level ERROR; return }
-                        $adAbort = $true
-                    } elseif ($waitMin -gt 0) { Wait-ADReplication -Minutes $waitMin }
-                }
-                if ($Global:ChkPrepDom.Checked -and -not $adAbort) {
-                    $okDom = $true
-                    if ($Global:RbAllDomains.Checked) {
-                        $okDom = Invoke-ExchangePrepareStep -SetupPath $ExchangeSetupPath -Step "PrepareAllDomains"
-                    } elseif ($Global:RbSingleDomain.Checked -and $Global:CmbDomainList.SelectedItem) {
-                        $okDom = Invoke-ExchangePrepareStep -SetupPath $ExchangeSetupPath -Step "PrepareDomain" -DomainName ($Global:CmbDomainList.SelectedItem.ToString())
-                    }
-                    if (-not $okDom) {
-                        Write-Log "AD-Vorbereitung ABGEBROCHEN nach Domain-Prep." -Level ERROR
-                        if (-not $continueOnError) { Write-Log "Aborted (PrepareDomain failed)" -Level ERROR; return }
-                    }
-                }
+        # SCHRITT 3: Voraussetzungs-Gate - die Installation startet NUR, wenn die
+        # Voraussetzungen vorher erfolgreich abgefragt wurden. Die frueheren
+        # Workflow-Optionen "Voraussetzungspruefung" (STEP 1), "Voraussetzungen
+        # vorab installieren" (STEP 1.5) und "AD-Vorbereitung im Master-Workflow"
+        # (STEP 2.5) wurden entfernt: die Reiter werden links nach rechts einzeln
+        # abgearbeitet (Voraussetzungen -> AD-Vorbereitung -> Installation), der
+        # Master-Workflow beginnt mit der Exchange-Installation. Vor dem Setup
+        # wird der System-Check (Test-ExchangePrerequisites: OS, RAM, freie
+        # Festplattenplaetze, ISO) UND der Installationsstand der Komponenten
+        # (Get-PrerequisiteStatus aus dem Reiter Voraussetzungen) abgefragt.
+        # Wie beim AD-Gate gilt die Sperre AUCH bei "Bei Fehlern weiter machen":
+        # ein fehlschlagendes Setup kostet mehr als ein abgebrochener Lauf.
+        if ($Global:Checks["InstallExchange"].Checked) {
+            Write-Log "--- STEP 3: Prerequisites gate ---" -Level INFO
+            $prereqProblems = @()
+            $isoCheck = if ($Global:RbISOFile.Checked) { $Global:TxtISO.Text } else { "" }
+            if (-not (Test-ExchangePrerequisites -ExchangeISOPath $isoCheck)) {
+                $prereqProblems += "System check (OS / RAM / free disk space / ISO - see errors above)"
             }
-
-            # === Automatischer Ergebnis-Check nach der Adprep ===
-            $adResult = & $Global:Script:RunAdPrepCheck
-            if ($adResult) { Update-ADPrepResultLabels -Result $adResult }
+            try {
+                $pst = Get-PrerequisiteStatus
+                if (-not $pst.DotNet48)   { $prereqProblems += ".NET Framework 4.8" }
+                if (-not $pst.VC2012)     { $prereqProblems += "Visual C++ 2012 x64" }
+                if (-not $pst.VC2013)     { $prereqProblems += "Visual C++ 2013 x64" }
+                if (-not $pst.URLRewrite) { $prereqProblems += "URL Rewrite 2.1" }
+                if (-not $pst.UCMA)       { $prereqProblems += "UCMA 4.0" }
+                if ($pst.MissingFeatures.Count -gt 0) {
+                    $prereqProblems += ("Windows features (" + $pst.MissingFeatures.Count + " missing / fehlend)")
+                }
+            } catch {
+                $prereqProblems += ("Prerequisite status unreadable / Voraussetzungsstatus nicht lesbar: " + $_.Exception.Message)
+            }
+            if ($prereqProblems.Count -gt 0) {
+                Write-Log ("Exchange installation BLOCKED: prerequisites NOT OK (" + $prereqProblems.Count + " items / Punkte)") -Level ERROR
+                foreach ($n in $prereqProblems) { Write-Log ("  NOT OK: $n") -Level ERROR }
+                Write-Log "Install the missing items in the Prerequisites tab first, then restart the workflow / zuerst im Reiter 'Voraussetzungen' nachinstallieren, dann den Workflow erneut starten." -Level ERROR
+                $pgMsg = (Get-T "Prereq_InstallBlocked") -f $prereqProblems.Count
+                $pgMsg += "`r`n`r`n" + ($prereqProblems -join "`r`n")
+                [System.Windows.Forms.MessageBox]::Show($pgMsg,(Get-T "Error"),'OK','Error')
+                return
+            }
+            Write-Log "Prerequisites gate: all checks OK - installation allowed" -Level SUCCESS
         }
 
         # SCHRITT 3: Exchange Setup
@@ -6816,7 +7070,7 @@ $Form.Add_Shown({
             $info_items += "RAM: $ramGB GB | Free C:\: $freeGB GB"
             $info_items += "Computer: $($cs.Name).$($cs.Domain)"
             if ($ramGB -lt 8)   { $issues += "RAM < 8 GB" }
-            if ($freeGB -lt 30) { $issues += "Free space < 30 GB" }
+            if ($freeGB -lt 20) { $issues += "Free space < 20 GB" }
         } catch {}
         Write-Host "@@DIAG@@ [7/7] System-Checks (OS/RAM) durch, jetzt ISO-Suche" -ForegroundColor DarkGray
         Start-Sleep -Milliseconds 200
@@ -6836,9 +7090,18 @@ $Form.Add_Shown({
         }
         Start-Sleep -Milliseconds 200
 
-        # 3. Voraussetzungen
+        # 3. Voraussetzungen - mit feingliedrigem Fortschritt: der Callback
+        # meldet JEDES einzelne Check-Objekt an das Splash-Label UND als
+        # DIAG-Zeile in die Konsole. Sonst sieht man nur "Pruefe Windows-
+        # Voraussetzungen..." und hat bei langsamem SXS-Repository den
+        # Eindruck, es haenge (Get-WindowsFeature braucht pro Aufruf
+        # mehrere Sekunden, wenn das System gerade "sammelt").
         Update-SplashStatus (Get-T "SplashPrereq")
-        $prereqStatus = Get-PrerequisiteStatus
+        $prereqStatus = Get-PrerequisiteStatus -OnStep {
+            param($stepText)
+            try { Update-SplashStatus ((Get-T "SplashPrereq") + " (" + $stepText + ")") } catch {}
+            Write-Host ("@@DIAG@@ [Prereq] " + $stepText) -ForegroundColor DarkGray
+        }
         if (-not $prereqStatus.DotNet48)   { $issues += ".NET 4.8 missing" }
         if (-not $prereqStatus.VC2012)     { $issues += "VC++ 2012 missing" }
         if (-not $prereqStatus.VC2013)     { $issues += "VC++ 2013 missing" }
@@ -6847,7 +7110,10 @@ $Form.Add_Shown({
         if (-not $prereqStatus.FeaturesOK) { $issues += ($prereqStatus.MissingFeatures.Count.ToString() + " Win-Features missing") }
         if ($prereqStatus.SMB1Enabled)     { $issues += "SMB1 still active" }
         if (-not $prereqStatus.NicPowerSavingOK) { $issues += "NIC power saving active" }
-        try { Update-PrerequisiteStatusDisplay; $Global:PrereqStatusLoaded = $true } catch {}
+        # Ergebnis aus dem Check oben durchreichen - sonst würde die
+        # Statusanzeige alle Voraussetzungen ein ZWEITES Mal pruefen
+        # (zusaetzliche Wartezeit im Start-Splash).
+        try { Update-PrerequisiteStatusDisplay -Status $prereqStatus; $Global:PrereqStatusLoaded = $true } catch {}
         Start-Sleep -Milliseconds 200
 
         # 4. Domain
@@ -7052,7 +7318,7 @@ $Form.Add_Shown({
 
 #region ============================ GUI START ============================
 try {
-    Write-Log ("Microsoft Exchange SE Configuration Center v1.4 started") -Level INFO
+    Write-Log ("Microsoft Exchange SE Configuration Center v1.5 started") -Level INFO
     # Welche Kopie des Skripts laeuft? Eine laufende Sitzung laedt die Datei nur
     # einmal beim Start - Pfad + Aenderungszeit machen veraltete Stände (Sync,
     # gestartete Altinstanzen) in jedem Log sofort sichtbar.

@@ -3,7 +3,7 @@
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue)](https://www.microsoft.com/de-de/powershell)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Status: Production](https://img.shields.io/badge/Status-Production-brightgreen)
-![Version: 1.4](https://img.shields.io/badge/Version-1.4-blue)
+![Version: 1.5](https://img.shields.io/badge/Version-1.5-blue)
 
 **Vollständig automatisierte Bereitstellung von Microsoft Exchange Server – unbeaufsichtigt und fehlerreduziert für Enterprise-Umgebungen. Inklusive Live-Fortschrittsanzeige der 14 Installationsphasen (je Setup-Task eine Zeile mit OK), URL-Übernahme vom bestehenden Exchange, Zertifikats-Center (Import / AD-CS / selbstsigniert mit SAN-Liste), automatischer AD-Prep-Ergebniskontrolle, korrekter Prerequisite-Reihenfolge (Windows-Features/Rollen vor IIS URL Rewrite Modul), granularer AntiSpam-Steuerung und editierbarer Datenbank-Vorschau.**
 
@@ -30,7 +30,7 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 - Keine manuelle Intervention erforderlich
 - Unbeaufsichtigter Modus mit automatischer Antwortdatei-Generierung
 - Durchgehender Workflow ohne Unterbrechungen
-- **ISO-Mount/Dismount automatisch**: Die ISO-Datei wird gemountet, sobald ein Schritt sie braucht (Voraussetzungen/UCMA, AD-Vorbereitung, Exchange-Installation), und **immer** nach dem jeweiligen Lauf wieder freigegeben – auch bei Abbruch; manuell gemountete Laufwerke bleiben unberührt (die früheren Optionen „ISO automatisch mounten“ und „ISO am Ende automatisch unmounten“ wurden entfernt)
+- **ISO-Mount/Dismount automatisch**: Die ISO-Datei wird gemountet, sobald ein Schritt sie braucht (Voraussetzungen/UCMA im Reiter „Voraussetzungen“, Exchange-Installation im Workflow), und **immer** nach dem jeweiligen Lauf wieder freigegeben – auch bei Abbruch; manuell gemountete Laufwerke bleiben unberührt (die früheren Optionen „ISO automatisch mounten“ und „ISO am Ende automatisch unmounten“ wurden entfernt)
 
 ### Umfassende Vorbereitung
 - Automatische Überprüfung der Systemvoraussetzungen
@@ -39,6 +39,8 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 - **Automatische Ergebniskontrolle nach dem Adprep**: Schema-, Organisations- und DomainPrep-Versionsstände, Vorbereitungs-Berechtigungen sowie Schema-Replikation über alle Domain Controller
 - **AD-Status aktualisiert sich automatisch**: nach jedem Adprep-Lauf (Button oder Workflow-Schritt) und nach jedem Ergebnis-Check wird auch die Status-Gruppe (Schema/Org/Domain, Benutzer, Berechtigungen) neu gefüllt – das manuelle Klicken auf „Status aktualisieren“ entfällt
 - **Installations-Sperre bei unvollständiger AD-Vorbereitung**: die Exchange-Installation läuft nur, wenn alle AD-Prüfpunkte OK sind; andernfalls bricht der Lauf vor dem Setup ab und meldet die nicht OK Punkte (auch bei aktiviertem „Bei Fehlern weiter machen“)
+- **Ausstehender Neustart wird vor dem Setup erkannt**: Prüft ein Setup-Lauf (AD-Vorbereitung oder Installation), dass `Component Based Servicing\RebootPending` oder `WindowsUpdate\RebootRequired` gesetzt ist, bricht er **vor** dem Start mit klarem Fehler ab – sonst läuft `Setup.exe /PrepareSchema` rund eineinhalb Minuten und scheitert mit Exit-Code 1 und `PendingRebootWindowsComponents` („Es steht ein Neustart aufgrund einer vorherigen Installation einer Windows Server-Rolle oder -Funktion aus“); auch die Voraussetzungs-Prüfung meldet den Neustart als nicht OK Punkt. `PendingFileRenameOperations` allein blockiert nicht, wird aber als Hinweis protokolliert. Nach jedem fehlgeschlagenen Setup-Lauf (Exit-Code ≠ 0) schreibt `Write-SetupLogErrorSummary` zusätzlich die `[ERROR]`/`[REQUIRED]`-Zeilen aus `ExchangeSetup.log` ins Haupt-Log, inklusive ausdrücklichem Neustart-Hinweis, wenn die Ursache ein Pending Reboot ist
+- **Installations-Sperre bei fehlenden Voraussetzungen**: der Master-Workflow startet erst mit der Exchange-Installation – die früheren Schritte „Voraussetzungsprüfung“, „Voraussetzungen vorab installieren“ und „AD-Vorbereitung im Master-Workflow“ wurden entfernt, die Reiter werden links nach rechts einzeln abgearbeitet; **vor dem Setup läuft ein Voraussetzungs-Gate**, das OS/RAM/Festplatte/ISO **und** die installierten Komponenten (.NET 4.8, VC++ 2012/2013, URL Rewrite, UCMA, Windows-Features) abfragt und bei Fehlern jeden nicht OK Punkt meldet, statt das Setup ins Leere zu starten (auch bei „Bei Fehlern weiter machen“)
 - Automatische Installation aller Voraussetzungen
 - Komponentenverwaltung
 
@@ -158,12 +160,11 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 ```
 
 ### Schritt 4: Konfiguration folgen
-Das Skript leitet Sie interaktiv durch:
-1. Systemvalidierung
+Die Reiter werden von links nach rechts einzeln abgearbeitet:
+1. Voraussetzungen – Prüfung und Installation der Komponenten
 2. AD-Vorbereitung (optional) – inklusive automatischem Ergebnis-Check
-3. Exchange-Setup-Parameter
-4. Automatische Installation
-5. Post-Installation Konfiguration (Zertifikate, URLs, Services)
+3. Installation – Setup-Parameter und der Master-Workflow (startet erst, nachdem die Voraussetzungen erfolgreich geprüft wurden)
+4. Post-Installation Konfiguration (Zertifikate, URLs, Services)
 
 ---
 
@@ -199,36 +200,24 @@ Weitere Konfigurationsoptionen finden Sie im [**Wiki**](../../wiki).
              │
              ▼
 ┌─────────────────────────────────────────────┐
-│ 1. Systemvalidierung                        │
-│    - OS-Version, RAM, HDD, .NET Framework   │
+│ 1. Voraussetzungen (Reiter)                 │
+│    - OS, RAM, HDD, .NET, VC++, Features     │
+│    - Komponenten nachinstallieren           │
 └────────────┬────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────┐
-│ 2. AD-Vorbereitung (optional)               │
+│ 2. AD-Vorbereitung (Reiter, optional)       │
 │    - ForestPrep, DomainPrep                 │
 │    - Automatische Ergebniskontrolle         │
 └────────────┬────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────┐
-│ 3. Voraussetzungen installieren             │
-│    - .NET, KB Updates, Visual C++           │
-└────────────┬────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────┐
-│ 4. Exchange Setup                           │
-│    - Automatische Antwortdatei-Generierung  │
-│    - Unbeaufsichtigte Installation          │
-└────────────┬────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────┐
-│ 5. Post-Installation Konfiguration          │
-│    - Zertifikat (Import/AD-CS/selbstsigniert)│
-│    - URLs vom Alt-Exchange übernehmen       │
-│    - Services, Koexistenz                   │
+│ 3. Master-Workflow (Reiter Installation)    │
+│    - Voraussetzungs-Gate + AD-Gate          │
+│    - Exchange Setup, AntiSpam, TLS          │
+│    - Zertifikat, URLs, Datenbanken, DAG     │
 └────────────┬────────────────────────────────┘
              │
              ▼
@@ -236,6 +225,8 @@ Weitere Konfigurationsoptionen finden Sie im [**Wiki**](../../wiki).
 │ ✅ Deployment abgeschlossen                │
 └─────────────────────────────────────────────┘
 ```
+
+Die Reiter werden von links nach rechts einzeln abgearbeitet: Voraussetzungen → AD-Vorbereitung → Installation. Der Master-Workflow („GESAMTEN PROZESS STARTEN“) beginnt mit der Exchange-Installation und startet erst, nachdem das Voraussetzungs-Gate alle Checks erfolgreich abgefragt hat.
 
 ---
 
@@ -318,4 +309,6 @@ Beiträge sind willkommen! Bitte erstelle einen Merge Request oder ein Issue fü
 
 ---
 
-**Zuletzt aktualisiert:** September 2026 | **Version:** 1.4
+**Zuletzt aktualisiert:** Oktober 2026 | **Version:** 1.5
+
+

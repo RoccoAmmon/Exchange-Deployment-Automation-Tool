@@ -7,6 +7,21 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
+## [1.5] - 2026-10-31
+
+### ✨ Hinzugefügt
+- **Ausstehender Neustart wird erkannt, bevor Setup ins Leere läuft**: Die neue Funktion `Get-PendingRebootStatus` prüft `Component Based Servicing\RebootPending`, `WindowsUpdate\Auto Update\RebootRequired` und `PendingFileRenameOperations`; `Invoke-ExchangePrepareStep` (AD-Vorbereitung) und `Install-ExchangeServer` brechen bei den beiden harten Blockern **vor** dem Setup mit klarem ERROR ab – sonst lief `/PrepareSchema` rund eineinhalb Minuten und endete mit Exit-Code 1 und `PendingRebootWindowsComponents` (beobachtet: „Es steht ein Neustart aufgrund einer vorherigen Installation einer Windows Server-Rolle oder -Funktion aus“), während `PendingFileRenameOperations` allein nur eine WARNING erzeugt (oft veraltet). Auch `Test-ExchangePrerequisites` meldet den Neustart als nicht OK Punkt und hält damit das Voraussetzungs-Gate von einer zum Scheitern verurteilten Installation ab. Zusätzlich holt die neue Funktion `Write-SetupLogErrorSummary` nach einem fehlgeschlagenen Setup-Lauf (Exit-Code ≠ 0) die `[ERROR]`- und `[REQUIRED]`-Zeilen aus `ExchangeSetup.log` ins Haupt-Log und nennt bei passendem Muster ausdrücklich den ausstehenden Neustart als Ursache – vorher stand dort nur „Exit-Code 1“
+
+### 🔧 Geändert
+- **Der Start-Splash zeigt beim Prüfen der Windows-Voraussetzungen, welcher Check gerade läuft**: `Get-PrerequisiteStatus` hat einen optionalen Fortschritts-Callback (`-OnStep`), der vor jedem einzelnen Check feuert – der Splash schreibt die Meldung ins Label („Pruefe Windows-Voraussetzungen… (Windows-Features 12/34: Web-Metabase)“) und zusätzlich als `@@DIAG@@ [Prereq]`-Zeile in die Konsole; damit ist lokalisierbar, wo der Lauf steht, denn `Get-WindowsFeature` braucht je nach System mehrere Sekunden pro Aufruf und wirkte sonst wie ein Stillstand („hängt bei 20 %“). Zusätzlich geht das bereits gelesene Ergebnis an `Update-PrerequisiteStatusDisplay` durch (neuer Parameter `-Status`), sodass der Start die Voraussetzungen nicht länger zweimal prüft; „Status aktualisieren“ und der Button nach der Voraussetzungs-Installation lesen weiterhin frisch
+- **Der Master-Workflow startet jetzt erst bei der Exchange-Installation – die Reiter werden links nach rechts einzeln abgearbeitet**: Aus dem Reiter „Installation“ wurden die drei Optionen „Voraussetzungsprüfung“, „Voraussetzungen vorab installieren“ und „AD-Vorbereitung im Master-Workflow“ entfernt (damit entfallen auch die Schritte STEP 1, STEP 1.5 und STEP 2.5 des Workflows, und die ISO wird nur noch für die Exchange-Installation gemountet); **vor dem Setup läuft ein neues Voraussetzungs-Gate**: `Test-ExchangePrerequisites` (OS, RAM, Festplatte, ISO) und `Get-PrerequisiteStatus` (.NET 4.8, VC++ 2012/2013, URL Rewrite, UCMA 4.0, Windows-Features) werden vor STEP 3 abgefragt – fehlt etwas, bricht der Lauf vor dem Setup ab, protokolliert jeden nicht OK Punkt und zeigt ihn zweisprachig an (neuer i18n-Key `Prereq_InstallBlocked`) mit Verweis auf den Reiter „Voraussetzungen“; wie beim AD-Gate blockiert die Sperre auch bei „Bei Fehlern weiter machen“; alte Konfigurationsdateien mit den entfernten Optionen laden weiterhin, und das Workflow-Diagramm sowie die Schritt-für-Schritt-Anleitung in der README beschreiben den neuen Ablauf
+- **Die NIC-Energiesparung prüft nur noch aktive Netzwerkkarten – WAN-Miniports bleiben außen vor**: `Get-NicPowerSavingInfo` gleicht die Adapter aus dem Klassen-Key jetzt zusätzlich mit `Get-NetAdapter` ab – als aktiv gelten nur Karten mit Status `Up` (aktiver Link), und WAN-Miniports (RAS/VPN/PPPoE, z. B. „WAN Miniport (SSTP)“) werden per Namensmuster ausgeschlossen; der Abgleich läuft über `NetCfgInstanceId` (≙ `InterfaceGuid`) mit Fallback auf den Treibernamen, und wenn `Get-NetAdapter` nicht verfügbar ist, bleibt nur der WAN-Filter wirksam. Übersprungene Einträge (WAN, inaktiv, Multiplexor) stehen mit neuem Feld `SkipReason` in der Liste, `Disable-NicPowerSaving` protokolliert den Grund je Karte, Statuszeile und `Get-PrerequisiteStatus` ziehen sie weiterhin aus – existiert kein aktiver Adapter mehr, meldet die GUI „no active NICs found / keine aktiven NICs gefunden“ statt „no NICs found“
+
+### 🛠 Behoben
+- **Der AD-Ergebnis-Report endete mit `Result check error: Der Wert "von" kann nicht in den Typ "System.Int32" konvertiert werden`**: `Write-ADPrepResultReport` baute die Abschlusszeile über `$Result.FailedCount + " von " + …` – links steht ein Int32, und PowerShell wandelt beim `+` den rechten Operanden in den Typ des linken, also `[int]"von"` → FormatException; der Report brach nach der letzten Detailzeile ab („fehlt auf: …“) und die Zeile „X von Y Pruefungen NICHT OK“ fehlte, der Fehler kam zweimal aus den catch-Blöcken von `Test-ADPrepResult` und `$Global:Script:RunAdPrepCheck`. Jetzt wird über den Formatoperator (`-f`) zusammengesetzt; der Fehlerfall ist gegen den exakten Meldungstext reproduziert und geprüft
+
+---
+
 ## [1.4] - 2026-09-28
 
 ### ✨ Hinzugefügt
@@ -219,4 +234,5 @@ versioniert nach [Semantic Versioning](https://semver.org/lang/de/).
 
 ---
 
-**Zuletzt aktualisiert**: 7. September 2026
+**Zuletzt aktualisiert**: 31. Oktober 2026
+
