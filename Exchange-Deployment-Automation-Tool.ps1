@@ -248,6 +248,12 @@ Start-Sleep -Milliseconds 600
       Server (Enterprise: 50) - bei Ueberschreitung Warn-MessageBox
       (i18n-Key DB_EditionLimit) + Log-Zeile, unbekannte Edition gibt
       eine WARNING mit dem 5er-Hinweis
+    - DAG vorlaeufig nur AUSBLENDEN (NICHT entfernt): Reiter "DAG" und
+      Workflow-Option "DAG erstellen" werden per Visible=$false versteckt
+      (Global:DagHidden=$true); Config-Laden setzt gehaektes CreateDAG zurueck,
+      STEP 8 hat einen Guard (-and -not DagHidden) - der komplette DAG-Code
+      bleibt erhalten; Wiedereinschalten wie im Kommentar bei der Options-
+      Erzeugung beschrieben
     - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
       "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
       die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
@@ -5334,6 +5340,16 @@ foreach ($o in $opts) {
     $GrpOpts.Controls.Add($cb)
     $Global:Checks[$o.Key] = $cb
 }
+# DAG vorlaeufig nur AUSBLENDEN - Code bleibt vollstaendig erhalten, weil
+# die DAG-Funktion noch nicht richtig funktioniert. Ausgeblendet werden
+# der Reiter "DAG" UND die Workflow-Option "DAG erstellen" (Opt_DAG).
+# DagHidden sichert zudem: gehaeltte Config-Optionen werden beim Laden
+# zurueckgesetzt, und STEP 8 fuehrt den Schritt nicht aus.
+# WIEDER EINSCHALTEN: DagHidden auf $false setzen, die beiden .Visible-
+# Zeilen auf $true stellen und den Guard bei STEP 8 entfernen.
+$Global:DagHidden = $true
+$TabDAG.Visible = $false
+$Global:Checks["CreateDAG"].Visible = $false
 #endregion
 
 #region ============================ TAB: SICHERHEIT / TLS ============================
@@ -6772,6 +6788,9 @@ $BtnLoadCfg.Add_Click({
                     $Global:Checks[$k].Checked = [bool]$cfg.Options.$k
                 }
             }
+            # DAG vorlaeufig ausgeblendet: gehaeltte Option aus alten Configs
+            # zuruecksetzen, damit der Workflow die DAG nicht trotzdem ausfuehrt
+            if ($Global:DagHidden) { $Global:Checks["CreateDAG"].Checked = $false }
         }
         if ($cfg.Prereq) {
             $Global:ChkInstDotNet.Checked=[bool]$cfg.Prereq.DotNet
@@ -7269,7 +7288,11 @@ $BtnStartAll.Add_Click({
         }
 
         # SCHRITT 8: DAG - ebenso direkt statt PerformClick (gleicher Fehler)
-        if ($Global:Checks["CreateDAG"].Checked) {
+        # ACHTUNG: vorlaeufig deaktiviert, solange DagHidden gesetzt ist -
+        # Tab und Workflow-Option sind ausgeblendet, weil die DAG noch nicht
+        # richtig funktioniert; der Code bleibt komplett erhalten. Spaeter
+        # nur DagHidden auf $false setzen (siehe Erzeugung der Options-Checkboxen)
+        if ($Global:Checks["CreateDAG"].Checked -and -not $Global:DagHidden) {
             Write-Log "--- STEP 8: DAG ---" -Level INFO
             [void](Invoke-DagCreation)
         }

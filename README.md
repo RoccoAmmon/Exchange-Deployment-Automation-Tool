@@ -9,7 +9,7 @@
 
 ---
 
-DAG Funktion ist noch nicht funktional!
+DAG-Funktion ist noch nicht funktional – der Reiter „DAG“ und die Workflow-Option „DAG erstellen“ sind daher vorläufig **ausgeblendet** (der komplette DAG-Code bleibt im Skript und kann jederzeit wieder freigeschaltet werden)!
 
 ## 📋 Übersicht
 
