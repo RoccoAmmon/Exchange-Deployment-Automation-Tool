@@ -241,19 +241,23 @@ Start-Sleep -Milliseconds 600
     - Button "Datenbanken jetzt erstellen" springt vor dem Anlegen zum
       Reiter "Ausfuehrung und Log" - der gesamte Ablauf (Anlage,
       Store-Neustart, Mount, Pruefung) laeuft live mit
-    - Ab mehr als 5 Datenbanken in der Liste wird vor dem Anlegen die
-      Exchange-Edition geprueft (Get-ExchangeEdition: Get-ExchangeServer.
-      Edition, Registry 'Edition' unter ExchangeServer\V15, Uninstall-
-      DisplayName); Standard erlaubt max. 5 gemountete Datenbanken pro
-      Server (Enterprise: 50) - bei Ueberschreitung Warn-MessageBox
-      (i18n-Key DB_EditionLimit) + Log-Zeile, unbekannte Edition gibt
-      eine WARNING mit dem 5er-Hinweis
-    - DAG vorlaeufig nur AUSBLENDEN (NICHT entfernt): Reiter "DAG" und
-      Workflow-Option "DAG erstellen" werden per Visible=$false versteckt
-      (Global:DagHidden=$true); Config-Laden setzt gehaektes CreateDAG zurueck,
-      STEP 8 hat einen Guard (-and -not DagHidden) - der komplette DAG-Code
-      bleibt erhalten; Wiedereinschalten wie im Kommentar bei der Options-
-      Erzeugung beschrieben
+    - Vor dem Anlegen wird das Editions-Limit der gemounteten Datenbanken
+      geprueft (Get-ExchangeEdition: Get-ExchangeServer.Edition, Registry
+      'Edition' unter ExchangeServer\V15, Uninstall-DisplayName; Limits
+      Standard=5, Enterprise=50): gezaehlt werden die bereits am Server
+      gemounteten DBs (Get-MailboxDatabase -Status) + die aus der Liste noch
+      zu mountenden - erst wenn die Summe ueber dem Limit liegt (z.B. 5
+      gemountet + 4 neu = 9 > 5) Warn-MessageBox (i18n-Key DB_EditionLimit)
+      + Log-Zeile; DBs ueber dem Limit werden im Mount-Loop mit klarem
+      Hinweis uebersprungen statt mit TooManyMountedDatabases abzuspringen,
+      unbekannte Edition gibt eine WARNING mit dem 5er-Hinweis
+    - DAG vorlaeufig nur AUSBLENDEN (NICHT entfernt): Reiter "DAG" wird per
+      TabControl.TabPages.Remove($TabDAG) aus der Reiterleiste genommen
+      (Visible=$false reicht bei WinForms-TabPages nicht), Workflow-Option
+      "DAG erstellen" per Visible=$false versteckt (Global:DagHidden=$true);
+      Config-Laden setzt gehaektes CreateDAG zurueck, STEP 8 hat einen Guard
+      (-and -not DagHidden) - der komplette DAG-Code bleibt erhalten;
+      Wiedereinschalten wie im Kommentar bei der Options-Erzeugung beschrieben
     - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
       "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
       die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
@@ -747,7 +751,7 @@ $Global:Texts = @{
         DB_Generate="Konfiguration generieren (Vorschau)"; DB_Clear="Liste leeren"
         DB_Preview="Vorschau / Bearbeitbare Liste:"; DB_CreateNow="Datenbanken jetzt erstellen"
         DB_VerifyFail="Datenbank-Pruefung: {0} von {1} Datenbanken NICHT OK (nicht gemountet, fehlende Dateien oder MAPI nicht erreichbar). Details im Log."
-        DB_EditionLimit="Datenbank-Limit: Exchange Server {0} Edition erlaubt maximal {1} gleichzeitig gemountete Datenbanken pro Server.`r`nDie Liste enthaelt {2} Datenbanken. Bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken (Enterprise: 50) - Datenbanken ueber dem Limit koennen nicht gemountet werden und werden bei der Pruefung als NOT OK gemeldet."
+        DB_EditionLimit="Datenbank-Limit: Exchange Server {0} Edition erlaubt maximal {1} gleichzeitig gemountete Datenbanken pro Server.`r`nAm Server sind aktuell {2} Datenbanken gemountet, {3} aus der Liste muessen noch gemountet werden (zusammen {4}). Bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken (Enterprise: 50) - Datenbanken ueber dem Limit koennen nicht gemountet werden und bleiben unmounted."
         DAG_Settings="DAG-Grundeinstellungen"; DAG_Name="DAG-Name:"; DAG_Witness="Witness-Server:"
         DAG_WitnessDir="Witness-Verzeichnis:"; DAG_IP="DAG-IP-Adresse(n):"
         DAG_IPHint="(Mehrere IPs mit Komma trennen)"; DAG_IPless="IP-lose DAG (Exchange 2016+ empfohlen)"
@@ -866,7 +870,7 @@ $Global:Texts = @{
         DB_Generate="Generate config (Preview)"; DB_Clear="Clear list"
         DB_Preview="Preview / Editable List:"; DB_CreateNow="Create databases now"
         DB_VerifyFail="Database verification: {0} of {1} databases NOT OK (not mounted, missing files or MAPI unreachable). See log for details."
-        DB_EditionLimit="Database limit: Exchange Server {0} Edition allows a maximum of {1} mounted databases per server.`r`nThe list contains {2} databases. On the Standard Edition the limit is 5 mounted databases (Enterprise: 50) - databases above the limit cannot be mounted and will be reported NOT OK by the verification."
+        DB_EditionLimit="Database limit: Exchange Server {0} Edition allows a maximum of {1} mounted databases per server.`r`nCurrently {2} databases are mounted on the server, {3} from the list still need to be mounted (total {4}). On the Standard Edition the limit is 5 mounted databases (Enterprise: 50) - databases above the limit cannot be mounted and will stay unmounted."
         DAG_Settings="DAG Base Settings"; DAG_Name="DAG Name:"; DAG_Witness="Witness Server:"
         DAG_WitnessDir="Witness Directory:"; DAG_IP="DAG IP Address(es):"
         DAG_IPHint="(Separate multiple IPs with comma)"; DAG_IPless="IP-less DAG (recommended Exchange 2016+)"
@@ -5345,10 +5349,12 @@ foreach ($o in $opts) {
 # der Reiter "DAG" UND die Workflow-Option "DAG erstellen" (Opt_DAG).
 # DagHidden sichert zudem: gehaeltte Config-Optionen werden beim Laden
 # zurueckgesetzt, und STEP 8 fuehrt den Schritt nicht aus.
-# WIEDER EINSCHALTEN: DagHidden auf $false setzen, die beiden .Visible-
-# Zeilen auf $true stellen und den Guard bei STEP 8 entfernen.
+# WIEDER EINSCHALTEN: DagHidden auf $false setzen, den Tab mit
+# $TabControl.TabPages.Insert(6, $TabDAG) wieder einfuegen (Index 6 =
+# alte Position), CreateDAG wieder sichtbar machen und den Guard bei
+# STEP 8 entfernen.
 $Global:DagHidden = $true
-$TabDAG.Visible = $false
+$TabControl.TabPages.Remove($TabDAG)   # WinForms ignoriert Visible bei TabPages - Entfernen aus der Reiterleiste ist zuverlaessig; Tab-Index vorher: 6
 $Global:Checks["CreateDAG"].Visible = $false
 #endregion
 
@@ -5577,13 +5583,19 @@ function Test-MailboxDatabases {
         if (-not $db) {
             $problems += "database object not found / Datenbankobjekt nicht gefunden"
         } else {
-            if (-not $db.Mounted) { $problems += "not mounted / nicht gemountet" }
-            $edb = $db.EdbFilePath; $logf = $db.LogFolderPath
-            if ($edb -and -not (Test-Path $edb))    { $problems += "EDB file missing: $edb / EDB-Datei fehlt" }
-            if ($logf -and -not (Test-Path $logf)) { $problems += "log folder missing: $logf / Log-Ordner fehlt" }
-            if ($db.Mounted -and $problems.Count -eq 0) {
-                try { Test-MapiConnectivity -Database $n -ErrorAction Stop | Out-Null }
-                catch { $problems += ("MAPI test failed / MAPI-Test fehlgeschlagen: " + $_.Exception.Message) }
+            if (-not $db.Mounted) {
+                # Nicht gemountet: EDB/Log werden erst beim ersten Mount
+                # angelegt - Datei-Checks duerfen hier NICHT als Fehler
+                # zaehlen (False Positive bei frisch angelegten DBs)
+                $problems += "not mounted / nicht gemountet"
+            } else {
+                $edb = $db.EdbFilePath; $logf = $db.LogFolderPath
+                if ($edb -and -not (Test-Path $edb))    { $problems += "EDB file missing: $edb / EDB-Datei fehlt" }
+                if ($logf -and -not (Test-Path $logf)) { $problems += "log folder missing: $logf / Log-Ordner fehlt" }
+                if ($problems.Count -eq 0) {
+                    try { Test-MapiConnectivity -Database $n -ErrorAction Stop | Out-Null }
+                    catch { $problems += ("MAPI test failed / MAPI-Test fehlgeschlagen: " + $_.Exception.Message) }
+                }
             }
         }
         if ($problems.Count -eq 0) {
@@ -5623,22 +5635,33 @@ function Invoke-DatabaseCreation {
         Write-Log "Exchange Management Shell could not be loaded - database step SKIPPED / Exchange-Verwaltungsshell nicht ladbar - Datenbank-Schritt uebersprungen" -Level ERROR
         return $false
     }
-    # Limit-Check: ab mehr als 5 Datenbanken in der Liste wird die
-    # Exchange-Edition geprueft - Standard erlaubt nur 5 gleichzeitig
-    # gemountete Datenbanken pro Server (Enterprise: 50). Ohne Meldung
-    # schlaegt der Mount ab der 6. DB fehl oder sie bleibt unmounted.
-    if ($rows.Count -gt 5) {
-        $edition = Get-ExchangeEdition
-        $limit = switch ($edition) { "Standard" { 5 } "Enterprise" { 50 } default { $null } }
-        if ($limit -and $rows.Count -gt $limit) {
-            Write-Log ("Database limit: Exchange Server " + $edition + " Edition allows max. " + $limit + " mounted databases per server - the list contains " + $rows.Count + " databases / Datenbank-Limit: bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken (Enterprise: 50)") -Level ERROR
-            $lMsg = (Get-T "DB_EditionLimit") -f $edition, $limit, $rows.Count
-            try { [System.Windows.Forms.MessageBox]::Show($lMsg, (Get-T "Warning"), 'OK', 'Warning') } catch {}
-        } elseif (-not $limit) {
-            Write-Log ("Exchange edition could not be determined - if this is a Standard server the limit is 5 mounted databases (Enterprise: 50), the list contains " + $rows.Count + " databases / Exchange-Edition nicht ermittelbar - bei Standard waeren max. 5 gemountete Datenbanken moeglich") -Level WARNING
-        } else {
-            Write-Log ("Database limit check: " + $rows.Count + " databases, " + $edition + " Edition (limit " + $limit + ") - OK / Limit-Check OK") -Level INFO
-        }
+    # Limit-Check: Die Standard Edition erlaubt max. 5 gleichzeitig
+    # GEMOUNTETE Datenbanken pro Server (Enterprise: 50). Geprueft wird
+    # NICHT nur die Listenlaenge, sondern: bereits am Server gemountete
+    # DBs + die DBs der Liste, die noch gemountet werden muessen.
+    # Sonst feuert die Meldung nicht, wenn z.B. nur 4 neue DBs in der
+    # Liste stehen, aber schon 5 andere am Server laufen (beobachtet:
+    # 4x MapiExceptionTooManyMountedDatabases beim Mount, keine Warnung).
+    $edition = Get-ExchangeEdition
+    $limit = switch ($edition) { "Standard" { 5 } "Enterprise" { 50 } default { $null } }
+    $mountedNow = 0
+    try { $mountedNow = @((Get-MailboxDatabase -Server $env:COMPUTERNAME -Status -ErrorAction SilentlyContinue) | Where-Object { $_.Mounted }).Count } catch {}
+    $toMount = 0
+    foreach ($row in $rows) {
+        $n = "$($row.Cells['DBName'].Value)"
+        $db = $null
+        try { $db = Get-MailboxDatabase -Identity $n -ErrorAction SilentlyContinue -Status } catch {}
+        if (-not $db -or -not $db.Mounted) { $toMount++ }
+    }
+    $total = $mountedNow + $toMount
+    if (-not $limit) {
+        Write-Log ("Exchange edition could not be determined - if this is a Standard server the limit is 5 mounted databases (Enterprise: 50); currently " + $mountedNow + " mounted, " + $toMount + " of the listed databases still to mount / Exchange-Edition nicht ermittelbar - bei Standard waeren max. 5 gemountete Datenbanken moeglich") -Level WARNING
+    } elseif ($total -gt $limit) {
+        Write-Log ("Database limit exceeded: Exchange Server " + $edition + " Edition allows max. " + $limit + " mounted databases per server - currently " + $mountedNow + " mounted + " + $toMount + " to mount from the list = " + $total + " / Datenbank-Limit: bei der Standard Edition liegt die Begrenzung bei 5 gemounteten Datenbanken pro Server (Enterprise: 50)") -Level ERROR
+        $lMsg = (Get-T "DB_EditionLimit") -f $edition, $limit, $mountedNow, $toMount, $total
+        try { [System.Windows.Forms.MessageBox]::Show($lMsg, (Get-T "Warning"), 'OK', 'Warning') } catch {}
+    } else {
+        Write-Log ("Database limit check: " + $edition + " Edition (limit " + $limit + " mounted DBs per server) - " + $mountedNow + " mounted + " + $toMount + " to mount from the list = " + $total + " - OK / Limit-Check OK") -Level INFO
     }
     $created = 0; $existing = 0; $errCnt = 0; $newNames = @()
     foreach ($row in $rows) {
@@ -5670,6 +5693,9 @@ function Invoke-DatabaseCreation {
     if ($newNames.Count -gt 0) {
         [void](Restart-ExchangeInformationStore)
         Start-Sleep -Seconds 10  # kurze Anlaufzeit fuer den Store
+        # Mount-Zaehler fuer das Editions-Limit aktualisieren (der Store
+        # kann beim Start einige DBs selbst gemountet haben)
+        try { $mountedNow = @((Get-MailboxDatabase -Server $env:COMPUTERNAME -Status -ErrorAction SilentlyContinue) | Where-Object { $_.Mounted }).Count } catch {}
         foreach ($n in $newNames) {
             try {
                 $st = $null
@@ -5679,11 +5705,27 @@ function Invoke-DatabaseCreation {
                     Write-Log ("DB mount error '" + $n + "': database object not found after store restart / Datenbankobjekt nach Store-Neustart nicht gefunden") -Level ERROR
                 } elseif ($st.Mounted) {
                     Write-Log ("  DB '" + $n + "' already mounted (auto-mounted on store start) / bereits gemountet") -Level INFO
+                } elseif ($limit -and $mountedNow -ge $limit) {
+                    # Ueber dem Editions-Limit: Mount-Direktive wuerde mit
+                    # MapiExceptionTooManyMountedDatabases abspringen -DB
+                    # bleibt daher mit klarem Hinweis unmounted, statt einen
+                    # mehrseitigen Diagnostic-Context ins Log zu schreiben
+                    $errCnt++
+                    Write-Log ("DB '" + $n + "' NOT mounted: mounted database limit reached (Exchange " + $edition + " Edition, max. " + $limit + " per server, " + $mountedNow + " already mounted) / Mount uebersprungen - Datenbank-Limit der Edition erreicht, DB bleibt unmounted") -Level ERROR
                 } else {
                     Mount-Database -Identity $n -ErrorAction Stop
+                    $mountedNow++
                     Write-Log ("  DB '" + $n + "' mounted after store restart / nach Store-Neustart gemountet") -Level SUCCESS
                 }
-            } catch { $errCnt++; Write-Log ("DB mount error '" + $n + "': " + $_) -Level ERROR }
+            } catch {
+                $errCnt++
+                $mErr = "$_"
+                if ($mErr -match 'TooManyMountedDatabases|0x8004060E') {
+                    Write-Log ("DB mount error '" + $n + "': mounted database limit reached (MapiExceptionTooManyMountedDatabases, hr=0x8004060E) - Exchange " + $edition + " Edition allows max. " + $limit + " mounted databases per server / Datenbank-Limit der Edition erreicht - DB bleibt unmounted") -Level ERROR
+                } else {
+                    Write-Log ("DB mount error '" + $n + "': " + $mErr) -Level ERROR
+                }
+            }
         }
     }
 

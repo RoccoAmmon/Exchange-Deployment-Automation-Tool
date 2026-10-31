@@ -9,7 +9,7 @@
 
 ---
 
-DAG-Funktion ist noch nicht funktional – der Reiter „DAG“ und die Workflow-Option „DAG erstellen“ sind daher vorläufig **ausgeblendet** (der komplette DAG-Code bleibt im Skript und kann jederzeit wieder freigeschaltet werden)!
+DAG-Funktion ist noch nicht funktional – der Reiter „DAG“ und die Workflow-Option „DAG erstellen“ sind daher vorläufig **ausgeblendet** (der Reiter wird per `$TabControl.TabPages.Remove()` aus der Reiterleiste genommen, da `Visible = $false` bei WinForms-TabPages nicht ausreicht; der komplette DAG-Code bleibt im Skript und kann jederzeit wieder freigeschaltet werden)!
 
 ## 📋 Übersicht
 
@@ -88,7 +88,7 @@ Das Exchange-Deployment-Automation-Tool ist ein umfassendes PowerShell-Skript zu
 ### Datenbank-Generator
 - Postfach-Datenbanken per Präfix + Startnummer + Anzahl generieren
 - **Vorschau vollständig editierbar** – EDB- und Log-Pfade pro Zeile direkt anpassbar
-- Datenbanken werden inkl. Verzeichniserstellung automatisch angelegt; danach wird der Informationsspeicher (`MSExchangeIS`) automatisch neu gestartet, die neuen DBs gemountet und alle gelisteten Datenbanken geprüft (Existenz, Mount-Status, EDB-Datei/Log-Ordner, MAPI-Erreichbarkeit) – nicht OK Datenbanken werden per Popup mit den betroffenen Namen gemeldet und ins Log geschrieben; beim Klick auf »Datenbanken jetzt erstellen« wechselt die GUI automatisch zum Reiter »Ausführung und Log«, damit der gesamte Ablauf live sichtbar ist. Ab mehr als 5 Datenbanken prüft das Tool vor dem Anlegen die Exchange-Edition – die Standard Edition erlaubt nur 5 gleichzeitig gemountete Datenbanken pro Server (Enterprise: 50) und wird bei Überschreitung per Warnung mit dem Limit gemeldet
+- Datenbanken werden inkl. Verzeichniserstellung automatisch angelegt; danach wird der Informationsspeicher (`MSExchangeIS`) automatisch neu gestartet, die neuen DBs gemountet und alle gelisteten Datenbanken geprüft (Existenz, Mount-Status, EDB-Datei/Log-Ordner, MAPI-Erreichbarkeit) – nicht OK Datenbanken werden per Popup mit den betroffenen Namen gemeldet und ins Log geschrieben; beim Klick auf »Datenbanken jetzt erstellen« wechselt die GUI automatisch zum Reiter »Ausführung und Log«, damit der gesamte Ablauf live sichtbar ist. Vor dem Anlegen prüft das Tool das Editions-Limit der **gemounteten** Datenbanken: Es zählt die bereits am Server gemounteten DBs plus die aus der Liste noch zu mountenden und meldet erst bei Überschreitung per Warnung das Limit – die Standard Edition erlaubt nur 5 gleichzeitig gemountete Datenbanken pro Server (Enterprise: 50). DBs über dem Limit werden mit klarem Hinweis nicht gemountet, statt mit einem `TooManyMountedDatabases`-Fehler abzuspringen
 
 ### Live-Fortschrittsanzeige
 - Fortschrittsbalken mit den **14 Installationsphasen** im Tab „Ausführung und Log“
