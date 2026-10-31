@@ -223,6 +223,13 @@ Start-Sleep -Milliseconds 600
       nur Warnung) blockiert AD-Vorbereitung und Installation VOR dem Start;
       nach Exit-Code != 0 holt Write-SetupLogErrorSummary die
       [ERROR]/[REQUIRED]-Zeilen aus ExchangeSetup.log ins Haupt-Log
+    - Neu: bei erkanntem ausstehendem Neustart wird per Popup ein direkter
+      Server-Neustart angeboten - Show-PendingRebootRestart fragt an allen
+      Blocker-Stellen (AD-Vorbereitung, Exchange-Installation,
+      Voraussetzungs-Gate im Master-Workflow) zweisprachig nach (neue
+      i18n-Keys PendingReboot_Title/Offer/Starting); bei "Ja" shutdown
+      /r /t 60 (abbruechbar mit shutdown /a), danach den Vorgang wiederholen,
+      bei "Nein" bisheriger ERROR-Abbruch
     - Bugfix: AD-Ergebnis-Report brach mit 'Result check error: Der Wert
       "von" kann nicht in den Typ "System.Int32" konvertiert werden' ab -
       die Abschlusszeile "X von Y Pruefungen NICHT OK" fehlte; jetzt per
@@ -782,6 +789,9 @@ $Global:Texts = @{
         AD_InstallBlocked="Exchange-Installation verhindert: die AD-Vorbereitung ist nicht vollstaendig ({0} von {1} Pruefungen NICHT OK)."
         Prereq_InstallBlocked="Exchange-Installation verhindert: die Voraussetzungen sind nicht vollstaendig ({0} Punkte NICHT OK). Es wurde nichts installiert - zuerst im Reiter 'Voraussetzungen' nachinstallieren (Status aktualisieren), dann den Workflow erneut starten."
         AD_CheckUnknown="Exchange-Installation verhindert: der AD-Status konnte nicht geprueft werden. Bitte 'Ergebnis automatisch pruefen' ausfuehren und das Log pruefen."
+        PendingReboot_Title="Ausstehender Neustart"
+        PendingReboot_Offer="Auf diesem Server steht ein Neustart aus ({0}). Exchange Setup wuerde deshalb fehlschlagen.`r`n`r`nJetzt neu starten? Der Neustart beginnt in 60 Sekunden und kann mit 'shutdown /a' abgebrochen werden. Nach dem Neustart den Vorgang bitte wiederholen."
+        PendingReboot_Starting="Der Server startet in 60 Sekunden neu.`r`nNach dem Neustart den Vorgang wiederholen."
     }
     EN = @{
         AppTitle="Microsoft Exchange SE - Configuration Center"; AppSubtitle="v1.5  |  Rocco Ammon"
@@ -896,6 +906,9 @@ $Global:Texts = @{
         AD_InstallBlocked="Exchange installation blocked: AD preparation is incomplete ({0} of {1} checks NOT OK)."
         Prereq_InstallBlocked="Exchange installation blocked: prerequisites are incomplete ({0} items NOT OK). Nothing was installed - install the missing items first in the Prerequisites tab (refresh status), then restart the workflow."
         AD_CheckUnknown="Exchange installation blocked: could not verify the AD status. Run 'Check result automatically' and inspect the log."
+        PendingReboot_Title="Pending reboot"
+        PendingReboot_Offer="A restart is pending on this server ({0}). Exchange Setup would fail because of this.`r`n`r`nRestart the server now? The restart begins in 60 seconds and can be cancelled with 'shutdown /a'. Repeat the operation after the restart."
+        PendingReboot_Starting="The server will restart in 60 seconds.`r`nRepeat the operation after the restart."
     }
 }
 
@@ -2027,6 +2040,47 @@ function Get-PendingRebootStatus {
     return [PSCustomObject]@{ Pending=($cbs -or $wu -or $pfr); CBS=$cbs; WindowsUpdate=$wu; FileRename=$pfr }
 }
 
+function Show-PendingRebootRestart {
+    <#
+        Bietet per Popup an, den Server wegen ausstehendem Neustart direkt
+        neu zu starten. Wird an den Stellen aufgerufen, an denen ein harter
+        Pending-Reboot-Befund (CBS/WindowsUpdate) das Setup blockiert - dort
+        wuerde der Lauf sonst nur mit ERROR abbrechen und der Benutzer muesste
+        den Neustart manuell veranlassen. Bei "Ja" wird shutdown /r /t 60
+        gestartet (Countdown abbrechbar mit shutdown /a), danach muss der
+        Vorgang wiederholt werden.
+        Rueckgabe: $true = Neustart eingeleitet, $false = abgelehnt/fehlgeschlagen.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Context,
+        [Parameter(Mandatory)][string[]]$Reasons
+    )
+    $why = $Reasons -join ", "
+    try {
+        $msg = (Get-T "PendingReboot_Offer") -f $why
+        $r = [System.Windows.Forms.MessageBox]::Show($msg, (Get-T "PendingReboot_Title"), 'YesNo', 'Warning')
+    } catch {
+        # Ohne GUI-Kontext (z.B. Konsole ohne WinForms) kein Popup - wie bisher nur melden
+        Write-Log ("Pending reboot: no popup possible (" + $_.Exception.Message + ") - please restart the server manually / Neustart bitte manuell veranlassen") -Level WARNING
+        return $false
+    }
+    if ($r -ne "Yes") {
+        Write-Log ("Pending reboot: restart declined ($Context) - setup will NOT be started / Neustart abgelehnt - Setup wird nicht gestartet") -Level WARNING
+        return $false
+    }
+    try {
+        Write-Log ("Pending reboot: server restarts in 60 seconds ($Context, reason: $why) / Server startet in 60 Sekunden neu - nach dem Neustart den Vorgang wiederholen (Abbruch: shutdown /a)") -Level WARNING
+        $p = Start-Process -FilePath "shutdown.exe" -ArgumentList "/r","/t","60" -PassThru -WindowStyle Hidden
+        Start-Sleep -Milliseconds 500
+        if ($p.HasExited -and $p.ExitCode -ne 0) { throw ("shutdown.exe exit code " + $p.ExitCode) }
+        try { [System.Windows.Forms.MessageBox]::Show((Get-T "PendingReboot_Starting"), (Get-T "Info"), 'OK', 'Information') } catch {}
+        return $true
+    } catch {
+        Write-Log ("Pending reboot: restart could not be started: " + $_.Exception.Message + " - please restart the server manually / Neustart konnte nicht gestartet werden - bitte manuell neu starten") -Level ERROR
+        return $false
+    }
+}
+
 function Test-ExchangePrerequisites {
     param([string]$ExchangeISOPath)
     $errors = @()
@@ -2798,6 +2852,8 @@ function Install-ExchangeServer {
                 if ($rb.CBS)           { $rbWhy += "Windows-Server-Rolle/-Funktion (Component Based Servicing)" }
                 if ($rb.WindowsUpdate) { $rbWhy += "Windows Update (RebootRequired)" }
                 Write-Log ("Exchange Setup NICHT GESTARTET: ausstehender Neustart (" + ($rbWhy -join ", ") + ") - Setup bricht im Prereq-Check mit 'PendingRebootWindowsComponents' und Exit-Code 1 ab. Server NEU STARTEN und den Workflow wiederholen / NOT STARTED: pending reboot - reboot the server and restart the workflow.") -Level ERROR
+                # Popup: Server-Neustart direkt anbieten (60-Sekunden-Countdown)
+                Show-PendingRebootRestart -Context "Exchange-Installation (STEP 3)" -Reasons $rbWhy | Out-Null
                 return $false
             }
         } catch {}
@@ -3109,6 +3165,8 @@ function Invoke-ExchangePrepareStep {
                 if ($rb.CBS)           { $rbWhy += "Windows-Server-Rolle/-Funktion (Component Based Servicing)" }
                 if ($rb.WindowsUpdate) { $rbWhy += "Windows Update (RebootRequired)" }
                 Write-Log ("$Step NICHT GESTARTET: ausstehender Neustart (" + ($rbWhy -join ", ") + ") - Exchange Setup wuerde im Prereq-Check mit 'PendingRebootWindowsComponents' und Exit-Code 1 abbrechen. Server NEU STARTEN und den Schritt wiederholen / NOT STARTED: pending reboot - reboot the server and repeat this step.") -Level ERROR
+                # Popup: Server-Neustart direkt anbieten (60-Sekunden-Countdown)
+                Show-PendingRebootRestart -Context "AD-Vorbereitung ($Step)" -Reasons $rbWhy | Out-Null
                 return $false
             }
             if ($rb.FileRename) {
@@ -6838,6 +6896,19 @@ $BtnStartAll.Add_Click({
                 $pgMsg = (Get-T "Prereq_InstallBlocked") -f $prereqProblems.Count
                 $pgMsg += "`r`n`r`n" + ($prereqProblems -join "`r`n")
                 [System.Windows.Forms.MessageBox]::Show($pgMsg,(Get-T "Error"),'OK','Error')
+                # Steckt ein ausstehender Neustart unter den Problemen, direkt
+                # anbieten, den Server neu zu starten (60-Sekunden-Countdown) -
+                # sonst muesste der Benutzer den Neustart manuell veranlassen
+                # und nach dem Neustart den Workflow von vorn starten.
+                try {
+                    $rbg = Get-PendingRebootStatus
+                    if ($rbg.CBS -or $rbg.WindowsUpdate) {
+                        $rbgWhy = @()
+                        if ($rbg.CBS)           { $rbgWhy += "Windows-Server-Rolle/-Funktion (Component Based Servicing)" }
+                        if ($rbg.WindowsUpdate) { $rbgWhy += "Windows Update (RebootRequired)" }
+                        Show-PendingRebootRestart -Context "Master-Workflow (Voraussetzungs-Gate)" -Reasons $rbgWhy | Out-Null
+                    }
+                } catch {}
                 return
             }
             Write-Log "Prerequisites gate: all checks OK - installation allowed" -Level SUCCESS
